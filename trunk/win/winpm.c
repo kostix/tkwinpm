@@ -65,10 +65,13 @@ CreateMonitorWindow (
 {
 	HINSTANCE  hinst;
 	WNDCLASSEX wc;
-	CHAR       title[32] = "TtkMonitorWindow";
-	CHAR       name[32] = "TtkMonitorClass";
+	ATOM       rc;
+	CHAR       title[] = "TkWinPMMonitorWindow";
+	CHAR       name[]  = "TkWinPMMonitorWindowClass";
 
 	hinst = Tk_GetHINSTANCE();
+
+	ZeroMemory(&wc, sizeof(wc));
     
 	wc.cbSize        = sizeof(WNDCLASSEX);
 	wc.style         = CS_HREDRAW | CS_VREDRAW;
@@ -82,20 +85,27 @@ CreateMonitorWindow (
 	wc.hbrBackground = (HBRUSH) COLOR_WINDOW;
 	wc.lpszMenuName  = name;
 	wc.lpszClassName = name;
-    
-	if (RegisterClassEx(&wc)) {
-		*phwnd = CreateWindow( name, title, WS_OVERLAPPEDWINDOW,
-			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-			NULL, NULL, hinst, NULL );
-		SetWindowLongPtr(*phwnd, GWLP_USERDATA, (LONG)interp);
-		ShowWindow(*phwnd, SW_HIDE);
-		UpdateWindow(*phwnd);
 
-		return TCL_OK;
-    } else {
-		/* TODO set interp error */
+	/* TODO error reporting */
+    
+	rc = RegisterClassEx(&wc);
+	if (rc == 0) {
 		return TCL_ERROR;
 	}
+
+	*phwnd = CreateWindow( name, title, WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		NULL, NULL, hinst, NULL );
+	if (*phwnd == NULL) {
+		return TCL_ERROR;
+	}
+
+	SetWindowLongPtr(*phwnd, GWLP_USERDATA, (LONG)interp);
+
+	ShowWindow(*phwnd, SW_HIDE);
+	UpdateWindow(*phwnd);
+
+	return TCL_OK;
 }
 
 #ifdef BUILD_winpm
@@ -103,21 +113,26 @@ CreateMonitorWindow (
 #define TCL_STORAGE_CLASS DLLEXPORT
 #endif /* BUILD_winpm */
 
-EXTERN int Winpm_Init(Tcl_Interp * interp)
+EXTERN int
+Winpm_Init(Tcl_Interp * interp)
 {
 	HWND hwndMonitor;
 
+#ifdef USE_TCL_STUBS
 	if (Tcl_InitStubs(interp, "8.1", 0) == NULL) {
 		return TCL_ERROR;
 	}
+#endif
 	if (Tcl_PkgRequire(interp, "Tcl", "8.1", 0) == NULL) {
 		return TCL_ERROR;
 	}
-	if (Tcl_PkgRequire(interp, "Tk", "8.1", 0) == NULL) {
+
+#ifdef USE_TK_STUBS
+	if (Tk_InitStubs(interp, "8.1", 0) == NULL) {
 		return TCL_ERROR;
 	}
-
-	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
+#endif
+	if (Tcl_PkgRequire(interp, "Tk", "8.1", 0) == NULL) {
 		return TCL_ERROR;
 	}
 
@@ -127,6 +142,10 @@ EXTERN int Winpm_Init(Tcl_Interp * interp)
 
 	Tcl_CreateObjCommand(interp, "winpm", (Tcl_ObjCmdProc *) Winpm_Cmd,
 		(ClientData) hwndMonitor, (Tcl_CmdDeleteProc *) Winpm_Cleanup);
+
+	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
+		return TCL_ERROR;
+	}
 
 	return TCL_OK;
 }
