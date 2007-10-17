@@ -19,13 +19,8 @@
 #include <tk.h>
 #include <tkPlatDecls.h>
 
-typedef enum {
-	QES_CLOSEAPP,
-	QES_LOGOFF,
-	QES_UNKNOWN
-} QES_FLAGS;
-
 typedef struct {
+	Tcl_Interp *interp; /* Interpreter to which this state belongs */
 	HWND hwndMonitor; /* Handle to the monitoring window */
 	Tk_BindingTable bindings;
 } Winpm_InterpData;
@@ -38,6 +33,26 @@ static const char *HandledEvents[] = {
 	"WM_POWERBROADCAST",
 	NULL
 };
+
+typedef struct {
+	char token;
+	char value[];
+} Winpm_PercentMap;
+
+static void
+Winpm_ExpandPercents (
+	Tcl_Interp *interp,
+	Winpm_PercentMap *mapPtr,
+	CONST char *before,
+	Tcl_DString *dsPtr
+	)
+{
+//	CONST char *string;
+
+	while (1) {
+		break;
+	}
+}
 
 static int
 Winpm_CheckEventName (
@@ -259,6 +274,53 @@ Winpm_Cleanup(ClientData clientData)
 	ckfree((char *) pdata);
 }
 
+static LRESULT
+Winpm_ProcessQueryEndSession (
+	)
+{
+}
+
+static void
+Winpm_ProcessPowerBcast (
+	Winpm_InterpData *statePtr,
+	WPARAM wParam,
+	LPARAM lParam
+	)
+{
+	lParam = 0; // compiler shut up
+
+	OutputDebugString("Winpm_ProcessPowerBcast\n");
+	Tcl_GlobalEval(statePtr->interp,
+			"winpm generate WM_POWERBROADCAST");
+
+	switch (wParam) {
+		case PBT_APMPOWERSTATUSCHANGE: {
+			SYSTEM_POWER_STATUS ps;
+			if (!GetSystemPowerStatus(&ps)) {
+				/* TODO get error message */
+				/* TODO process async error */
+				Tcl_ResetResult(statePtr->interp);
+			}
+		}
+		break;
+
+		case PBT_APMRESUMEAUTOMATIC:
+		break;
+
+		case PBT_APMRESUMESUSPEND:
+		break;
+
+		case PBT_APMSUSPEND:
+		break;
+
+//		case PBT_POWERSETTINGCHANGE:
+//		break;
+
+		default:
+		break;
+	}
+}
+
 static LRESULT CALLBACK
 WndProc(
 	HWND hwnd,
@@ -267,12 +329,23 @@ WndProc(
 	LPARAM lParam
 )
 {
+	OutputDebugString("WndProc\n");
+
 	switch (uMsg) {
 		case WM_QUERYENDSESSION:
+			return TRUE;
+		break;
 
 		case WM_ENDSESSION:
+			return 0;
+		break;
 
 		case WM_POWERBROADCAST:
+			Winpm_ProcessPowerBcast(
+					(Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA),
+					wParam, lParam);
+			return TRUE;
+		break;
 
 		default:
 			return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -323,7 +396,7 @@ CreateMonitorWindow (
 		return TCL_ERROR;
 	}
 
-	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG)interp);
+	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG)pdata);
 
 	ShowWindow(hwnd, SW_HIDE);
 	UpdateWindow(hwnd);
@@ -362,6 +435,7 @@ Winpm_Init(Tcl_Interp * interp)
 	}
 
 	pdata = (Winpm_InterpData *) ckalloc(sizeof(Winpm_InterpData));
+	pdata->interp = interp;
 
 	if (CreateMonitorWindow(interp, pdata) != TCL_OK) {
 		return TCL_ERROR;
