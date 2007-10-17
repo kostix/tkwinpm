@@ -19,6 +19,189 @@
 #include <tk.h>
 #include <tkPlatDecls.h>
 
+typedef enum {
+	QES_CLOSEAPP,
+	QES_LOGOFF,
+	QES_UNKNOWN
+} QES_FLAGS;
+
+typedef struct {
+	HWND hwndMonitor; /* Handle to the monitoring window */
+	Tk_BindingTable bindings;
+} Winpm_InterpData;
+
+static const ClientData BindObject = (ClientData) 0xBAADF00D;
+
+static const char *HandledEvents[] = {
+	"WM_QUERYENDSESSION",
+	"WM_ENDSESSION",
+	"WM_POWERBROADCAST",
+	NULL
+};
+
+static int
+Winpm_CheckEventName (
+	Tcl_Interp *interp,
+	Tcl_Obj *objPtr
+	)
+{
+	int i;
+
+	return Tcl_GetIndexFromObj(interp, objPtr,
+			HandledEvents, "event", 0, &i);
+}
+
+/*
+ * winpm bind
+ * winpm bind WM_QUERYENDSESSION
+ * winpm bind WM_QUERYENDSESSION SCRIPT
+ */
+static int
+Winpm_CmdBind (
+	Tcl_Interp *interp,
+	Tk_BindingTable bindings,
+	int objc,
+	Tcl_Obj *const objv[]
+	)
+{
+	switch (objc) {
+		case 2: /* List all currently bound events */
+			Tk_GetAllBindings(interp, bindings, BindObject);
+			return TCL_OK;
+		break;
+
+		case 3: { /* Show binding for an event */
+			CONST char *scriptPtr;
+
+			if (Winpm_CheckEventName(interp,
+						objv[2]) != TCL_OK) return TCL_ERROR;
+
+			scriptPtr = Tk_GetBinding(interp, bindings,
+					BindObject, Tcl_GetString(objv[2]));
+			if (scriptPtr == NULL) {
+				Tcl_ResetResult(interp);
+			} else {
+				Tcl_SetObjResult(interp,
+						Tcl_NewStringObj(scriptPtr, -1));
+			}
+			return TCL_OK;
+		}
+		break;
+
+		case 4: { /* Create or delete binding */
+			char *s;
+			long len;
+
+			s = Tcl_GetStringFromObj(objv[3], &len);
+			if (len == 0) {
+				return Tk_DeleteBinding(interp, bindings,
+						BindObject, Tcl_GetString(objv[2]));
+			} else {
+				unsigned long mask;
+				int append;
+
+				if (Winpm_CheckEventName(interp,
+							objv[2]) != TCL_OK) return TCL_ERROR;
+
+				append = s[0] == '+';
+				if (append) ++s;
+
+				mask = Tk_CreateBinding(interp, bindings,
+						BindObject, Tcl_GetString(objv[2]), s, append);
+				if (mask == 0) {
+					return TCL_ERROR;
+				} else {
+					return TCL_OK;
+				}
+			}
+		}
+		break;
+
+		default:
+			Tcl_WrongNumArgs(interp, 2, objv, "?event? ?command?");
+			return TCL_ERROR;
+		break;
+	}
+}
+
+/* winpm generate EVENT */
+static int
+Winpm_CmdGenerate (
+	Tcl_Interp *interp,
+	Tk_BindingTable bindings,
+	int objc,
+	Tcl_Obj *const objv[]
+	)
+{
+	CONST char *scriptPtr;
+
+	if (objc != 3) {
+		Tcl_WrongNumArgs(interp, 2, objv, "event");
+		return TCL_ERROR;
+	}
+
+	if (Winpm_CheckEventName(interp,
+				objv[2]) != TCL_OK) return TCL_ERROR;
+
+	scriptPtr = Tk_GetBinding(interp, bindings,
+			BindObject, Tcl_GetString(objv[2]));
+	if (scriptPtr == NULL) {
+		return TCL_OK;
+	} else {
+		int code = Tcl_GlobalEval(interp, scriptPtr);
+		if (code == TCL_ERROR) {
+			/* TODO format error message */
+			return TCL_ERROR;
+		} else {
+			return TCL_OK;
+		}
+	}
+}
+
+/* winpm info arg ?arg ...? */
+static int
+Winpm_CmdInfo (
+	Tcl_Interp *interp,
+	Winpm_InterpData *statePtr,
+	int objc,
+	Tcl_Obj *const objv[]
+	)
+{
+	static const char *topics[] = { "events", NULL };
+	typedef enum { INF_EVENTS } INF_Option;
+	int opt;
+
+	if (objc < 3) {
+		Tcl_WrongNumArgs(interp, 2, objv, "topic ?arg ...?");
+		return TCL_ERROR;
+	}
+
+	if (Tcl_GetIndexFromObj(interp, objv[2], topics, "topic",
+			0, &opt) != TCL_OK) { return TCL_ERROR; }
+
+	switch (opt) {
+		case INF_EVENTS: {
+			int i;
+			CONST char *p;
+			Tcl_Obj *listObj;
+
+			listObj = Tcl_NewListObj(0, NULL);
+			i = 0;
+			p = HandledEvents[i];
+			while (p != NULL) {
+				Tcl_ListObjAppendElement(interp,
+						listObj, Tcl_NewStringObj(p, -1));
+				p = HandledEvents[++i];
+			}
+			Tcl_SetObjResult(interp, listObj);
+			return TCL_OK;
+		}
+		break;
+	}
+
+	return TCL_OK;
+}
+
 static int
 Winpm_Cmd (
 	ClientData clientData, /* Not used. */
@@ -27,14 +210,53 @@ Winpm_Cmd (
 	Tcl_Obj *const objv[]
 	)
 {
+	static const char *options[] = { "bind", "generate", "info", NULL };
+	typedef enum { WPM_BIND, WPM_GENERATE, WPM_INFO } WPM_Option;
+	int opt;
+	Winpm_InterpData *statePtr;
+
+	if (objc == 1) {
+		Tcl_WrongNumArgs(interp, 1, objv,
+				"option ?arg ...?");
+		return TCL_ERROR;
+	}
+
+	if (Tcl_GetIndexFromObj(interp, objv[1], options, "option",
+			0, &opt) != TCL_OK) { return TCL_ERROR; }
+
+	statePtr = (Winpm_InterpData *) clientData;
+
+	switch (opt) {
+		case WPM_BIND:
+			return Winpm_CmdBind(interp, statePtr->bindings, objc, objv);
+		break;
+
+		case WPM_GENERATE:
+			return Winpm_CmdGenerate(interp, statePtr->bindings, objc, objv);
+		break;
+
+		case WPM_INFO:
+			return Winpm_CmdInfo(interp, statePtr, objc, objv);
+		break;
+
+		default:
+			Tcl_SetResult(interp, "Not suported", TCL_VOLATILE);
+			return TCL_ERROR;
+		break;
+	}
+
 	return TCL_OK;
 }
 
 static void
 Winpm_Cleanup(ClientData clientData)
 {
-	HWND hwndMonitor = (HWND) clientData;
-	DestroyWindow(hwndMonitor);
+	Winpm_InterpData *pdata = (Winpm_InterpData *) clientData;
+
+	Tk_DeleteBindingTable(pdata->bindings);
+	DestroyWindow(pdata->hwndMonitor);
+
+	ckfree((char *) pdata);
 }
 
 static LRESULT CALLBACK
@@ -60,7 +282,7 @@ WndProc(
 static int
 CreateMonitorWindow (
 	Tcl_Interp *interp,
-	HWND *phwnd
+	Winpm_InterpData *pdata
 	)
 {
 	HINSTANCE  hinst;
@@ -68,10 +290,11 @@ CreateMonitorWindow (
 	ATOM       rc;
 	CHAR       title[] = "TkWinPMMonitorWindow";
 	CHAR       name[]  = "TkWinPMMonitorWindowClass";
+	HWND       hwnd;
 
 	hinst = Tk_GetHINSTANCE();
 
-	ZeroMemory(&wc, sizeof(wc));
+	memset(&wc, 0, sizeof(wc));
     
 	wc.cbSize        = sizeof(WNDCLASSEX);
 	wc.style         = CS_HREDRAW | CS_VREDRAW;
@@ -93,17 +316,19 @@ CreateMonitorWindow (
 		return TCL_ERROR;
 	}
 
-	*phwnd = CreateWindow( name, title, WS_OVERLAPPEDWINDOW,
+	hwnd = CreateWindow( name, title, WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 		NULL, NULL, hinst, NULL );
-	if (*phwnd == NULL) {
+	if (hwnd == NULL) {
 		return TCL_ERROR;
 	}
 
-	SetWindowLongPtr(*phwnd, GWLP_USERDATA, (LONG)interp);
+	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG)interp);
 
-	ShowWindow(*phwnd, SW_HIDE);
-	UpdateWindow(*phwnd);
+	ShowWindow(hwnd, SW_HIDE);
+	UpdateWindow(hwnd);
+
+	pdata->hwndMonitor = hwnd;
 
 	return TCL_OK;
 }
@@ -116,7 +341,7 @@ CreateMonitorWindow (
 EXTERN int
 Winpm_Init(Tcl_Interp * interp)
 {
-	HWND hwndMonitor;
+	Winpm_InterpData *pdata;
 
 #ifdef USE_TCL_STUBS
 	if (Tcl_InitStubs(interp, "8.1", 0) == NULL) {
@@ -136,12 +361,16 @@ Winpm_Init(Tcl_Interp * interp)
 		return TCL_ERROR;
 	}
 
-	if (CreateMonitorWindow(interp, &hwndMonitor) != TCL_OK) {
+	pdata = (Winpm_InterpData *) ckalloc(sizeof(Winpm_InterpData));
+
+	if (CreateMonitorWindow(interp, pdata) != TCL_OK) {
 		return TCL_ERROR;
 	}
 
+	pdata->bindings = Tk_CreateBindingTable(interp);
+
 	Tcl_CreateObjCommand(interp, "winpm", (Tcl_ObjCmdProc *) Winpm_Cmd,
-		(ClientData) hwndMonitor, (Tcl_CmdDeleteProc *) Winpm_Cleanup);
+		(ClientData) pdata, (Tcl_CmdDeleteProc *) Winpm_Cleanup);
 
 	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
 		return TCL_ERROR;
