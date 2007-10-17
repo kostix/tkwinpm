@@ -1,3 +1,11 @@
+tk\generic\tkBind.c:
+ExpandPercents
+
+[04:49]<kostix> is there a C API for [string map]?
+[04:49]<jenglish> kostix - I don't think so.
+[04:51]<jenglish> Nope.  [string map] is implemented inline in the middle of a switch() statement in Tcl_StringObjCmd.
+
+
 /* TtkSendVirtualEvent --
  * 	Send a virtual event notification to the specified target window.
  * 	Equivalent to "event generate $tgtWindow <<$eventName>>"
