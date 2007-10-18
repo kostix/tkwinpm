@@ -39,5 +39,12 @@ LOW:
 * Workarounds for old compilers (VC6) which don't know about
   modern PBT_ event types.
 
+? Implement wrapper subrommands for some "active" relevant Win32
+  API calls for shutting down the system, logging off the user,
+  etc.
+
+? Possibly rename the project to tclwinsm (Windows Session
+  Management).
+
 
 # vim:tw=64:noet
