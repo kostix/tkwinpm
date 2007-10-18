@@ -55,15 +55,39 @@ Winpm_ExpandPercents (
 }
 
 static int
-Winpm_CheckEventName (
+Winpm_DispatchEvent (
+	Winpm_InterpData *statePtr,
+	Winpm_PercentMap *mapPtr,
+	CONST char *event
+	)
+{
+	CONST char *script;
+
+	script = Tk_GetBinding(statePtr->interp, statePtr->bindings,
+			BindObject, event);
+	if (script == NULL) {
+		return TCL_OK;
+	} else {
+		return Tcl_GlobalEval(statePtr->interp, script);
+	}
+}
+
+static int
+Winpm_NormalizeEventName (
 	Tcl_Interp *interp,
-	Tcl_Obj *objPtr
+	Tcl_Obj *objPtr,
+	CONST char **namePtr
 	)
 {
 	int i;
 
-	return Tcl_GetIndexFromObj(interp, objPtr,
-			HandledEvents, "event", 0, &i);
+	if (Tcl_GetIndexFromObj(interp, objPtr,
+			HandledEvents, "event", 0, &i) != TCL_OK) {
+		return TCL_ERROR;
+	} else {
+		*namePtr = HandledEvents[i];
+		return TCL_OK;
+	}
 }
 
 /*
@@ -86,43 +110,45 @@ Winpm_CmdBind (
 		break;
 
 		case 3: { /* Show binding for an event */
-			CONST char *scriptPtr;
+			CONST char *event, *script;
 
-			if (Winpm_CheckEventName(interp,
-						objv[2]) != TCL_OK) return TCL_ERROR;
+			if (Winpm_NormalizeEventName(interp, objv[2],
+						&event) != TCL_OK) return TCL_ERROR;
 
-			scriptPtr = Tk_GetBinding(interp, bindings,
-					BindObject, Tcl_GetString(objv[2]));
-			if (scriptPtr == NULL) {
+			script = Tk_GetBinding(interp, bindings,
+					BindObject, event);
+			if (script == NULL) {
 				Tcl_ResetResult(interp);
 			} else {
 				Tcl_SetObjResult(interp,
-						Tcl_NewStringObj(scriptPtr, -1));
+						Tcl_NewStringObj(script, -1));
 			}
 			return TCL_OK;
 		}
 		break;
 
 		case 4: { /* Create or delete binding */
-			char *s;
+			CONST char *event, *script;
 			long len;
 
-			s = Tcl_GetStringFromObj(objv[3], &len);
+			if (Winpm_NormalizeEventName(interp, objv[2],
+					&event) != TCL_OK) {
+				return TCL_ERROR;
+			}
+
+			script = Tcl_GetStringFromObj(objv[3], &len);
 			if (len == 0) {
 				return Tk_DeleteBinding(interp, bindings,
-						BindObject, Tcl_GetString(objv[2]));
+						BindObject, event);
 			} else {
 				unsigned long mask;
 				int append;
 
-				if (Winpm_CheckEventName(interp,
-							objv[2]) != TCL_OK) return TCL_ERROR;
-
-				append = s[0] == '+';
-				if (append) ++s;
+				append = script[0] == '+';
+				if (append) ++script;
 
 				mask = Tk_CreateBinding(interp, bindings,
-						BindObject, Tcl_GetString(objv[2]), s, append);
+						BindObject, event, script, append);
 				if (mask == 0) {
 					return TCL_ERROR;
 				} else {
@@ -148,22 +174,22 @@ Winpm_CmdGenerate (
 	Tcl_Obj *const objv[]
 	)
 {
-	CONST char *scriptPtr;
+	CONST char *event, *script;
 
 	if (objc != 3) {
 		Tcl_WrongNumArgs(interp, 2, objv, "event");
 		return TCL_ERROR;
 	}
 
-	if (Winpm_CheckEventName(interp,
-				objv[2]) != TCL_OK) return TCL_ERROR;
+	if (Winpm_NormalizeEventName(interp, objv[2],
+				&event) != TCL_OK) return TCL_ERROR;
 
-	scriptPtr = Tk_GetBinding(interp, bindings,
-			BindObject, Tcl_GetString(objv[2]));
-	if (scriptPtr == NULL) {
+	script = Tk_GetBinding(interp, bindings,
+			BindObject, event);
+	if (script == NULL) {
 		return TCL_OK;
 	} else {
-		int code = Tcl_GlobalEval(interp, scriptPtr);
+		int code = Tcl_GlobalEval(interp, script);
 		if (code == TCL_ERROR) {
 			/* TODO format error message */
 			return TCL_ERROR;
@@ -217,16 +243,48 @@ Winpm_CmdInfo (
 	return TCL_OK;
 }
 
+/* winpm injectwm uMsg wParam lParam */
+static int
+Winpm_CmdInjectWM (
+	Tcl_Interp *interp,
+	Winpm_InterpData *statePtr,
+	int objc,
+	Tcl_Obj *const objv[]
+	)
+{
+	UINT    uMsg;
+	WPARAM  wParam;
+	LPARAM  lParam;
+	LRESULT res;
+
+	if (objc != 5) {
+		Tcl_WrongNumArgs(interp, 2, objv, "uMsg wParam lParam");
+		return TCL_ERROR;
+	}
+
+	if (Tcl_GetLongFromObj(interp, objv[2], &uMsg) != TCL_OK
+			|| Tcl_GetLongFromObj(interp, objv[3], &wParam) != TCL_OK
+			|| Tcl_GetLongFromObj(interp, objv[4], &lParam) != TCL_OK) {
+		return TCL_ERROR;
+	}
+
+	res = SendMessage(statePtr->hwndMonitor, uMsg, wParam, lParam);
+
+	Tcl_SetObjResult(interp, Tcl_NewLongObj(res));
+	return TCL_OK;
+}
+
 static int
 Winpm_Cmd (
-	ClientData clientData, /* Not used. */
+	ClientData clientData,
 	Tcl_Interp *interp,
 	int objc,
 	Tcl_Obj *const objv[]
 	)
 {
-	static const char *options[] = { "bind", "generate", "info", NULL };
-	typedef enum { WPM_BIND, WPM_GENERATE, WPM_INFO } WPM_Option;
+	static const char *options[] = { "bind", "generate", "info",
+		"injectwm", NULL };
+	typedef enum { WPM_BIND, WPM_GENERATE, WPM_INFO, WPM_INJECTWM } WPM_Option;
 	int opt;
 	Winpm_InterpData *statePtr;
 
@@ -254,30 +312,12 @@ Winpm_Cmd (
 			return Winpm_CmdInfo(interp, statePtr, objc, objv);
 		break;
 
-		default:
-			Tcl_SetResult(interp, "Not suported", TCL_VOLATILE);
-			return TCL_ERROR;
+		case WPM_INJECTWM:
+			return Winpm_CmdInjectWM(interp, statePtr, objc, objv);
 		break;
 	}
 
 	return TCL_OK;
-}
-
-static void
-Winpm_Cleanup(ClientData clientData)
-{
-	Winpm_InterpData *pdata = (Winpm_InterpData *) clientData;
-
-	Tk_DeleteBindingTable(pdata->bindings);
-	DestroyWindow(pdata->hwndMonitor);
-
-	ckfree((char *) pdata);
-}
-
-static LRESULT
-Winpm_ProcessQueryEndSession (
-	)
-{
 }
 
 static void
@@ -289,9 +329,7 @@ Winpm_ProcessPowerBcast (
 {
 	lParam = 0; // compiler shut up
 
-	OutputDebugString("Winpm_ProcessPowerBcast\n");
-	Tcl_GlobalEval(statePtr->interp,
-			"winpm generate WM_POWERBROADCAST");
+	Winpm_DispatchEvent(statePtr, NULL, "WM_POWERBROADCAST");
 
 	switch (wParam) {
 		case PBT_APMPOWERSTATUSCHANGE: {
@@ -329,15 +367,25 @@ WndProc(
 	LPARAM lParam
 )
 {
-	OutputDebugString("WndProc\n");
-
 	switch (uMsg) {
-		case WM_QUERYENDSESSION:
-			return TRUE;
+		case WM_QUERYENDSESSION: {
+			Winpm_InterpData *statePtr;
+			int code;
+
+			statePtr = (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+			code = Winpm_DispatchEvent(statePtr, NULL, "WM_QUERYENDSESSION");
+			return code != TCL_CONTINUE;
+		}
 		break;
 
-		case WM_ENDSESSION:
+		case WM_ENDSESSION: {
+			Winpm_InterpData *statePtr;
+
+			statePtr = (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+			Winpm_DispatchEvent(statePtr, NULL, "WM_ENDSESSION");
+
 			return 0;
+		}
 		break;
 
 		case WM_POWERBROADCAST:
@@ -404,6 +452,17 @@ CreateMonitorWindow (
 	pdata->hwndMonitor = hwnd;
 
 	return TCL_OK;
+}
+
+static void
+Winpm_Cleanup(ClientData clientData)
+{
+	Winpm_InterpData *pdata = (Winpm_InterpData *) clientData;
+
+	Tk_DeleteBindingTable(pdata->bindings);
+	DestroyWindow(pdata->hwndMonitor);
+
+	ckfree((char *) pdata);
 }
 
 #ifdef BUILD_winpm

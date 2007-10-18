@@ -1,0 +1,43 @@
+$Id$
+
+HIGH:
+
+* Implement background error reporting for bound scripts.
+  Possibly provide for disabling of scripts on errors.
+
+* Implement test suite.
+
+(Completing of these two points will allow to release a
+preliminary working binary release which can be immediately
+used in production for simple cases.)
+
+NORMAL:
+
+* Implement extended event information retrieval
+  (via [winpm info]).
+
+* Implement possibility to bind to PBT_ event classes of
+  WM_POWERBROADCAST message.
+
+* Implement %-expansion of bound scripts.
+
+* Module documentation.
+
+* MinGW support.
+
+LOW:
+
+* Substitute Tk binding handling with regular hashes
+  and drop dependence on Tk.
+
+* Figure out how to enable linking agains Unicode Win32 API.
+
+* Implement proper retrieving and reporting of Win32 API errors.
+
+* Code cleanup and comments.
+
+* Workarounds for old compilers (VC6) which don't know about
+  modern PBT_ event types.
+
+
+# vim:tw=64:noet

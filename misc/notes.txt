@@ -5,26 +5,65 @@ ExpandPercents
 [04:49]<jenglish> kostix - I don't think so.
 [04:51]<jenglish> Nope.  [string map] is implemented inline in the middle of a switch() statement in Tcl_StringObjCmd.
 
+WM_QUERYENDSESSION  0x0011
+WM_ENDSESSION       0x0016
 
-/* TtkSendVirtualEvent --
- * 	Send a virtual event notification to the specified target window.
- * 	Equivalent to "event generate $tgtWindow <<$eventName>>"
- *
- * 	Note that we use Tk_QueueWindowEvent, not Tk_HandleEvent,
- * 	so this routine does not reenter the interpreter.
- */
-void TtkSendVirtualEvent(Tk_Window tgtWin, const char *eventName)
-{
-    XEvent event;
+lParam:
+ENDSESSION_CLOSEAPP 0x00000001
+ENDSESSION_LOGOFF   0x80000000
 
-    memset(&event, 0, sizeof(event));
-    event.xany.type = VirtualEvent;
-    event.xany.serial = NextRequest(Tk_Display(tgtWin));
-    event.xany.send_event = False;
-    event.xany.window = Tk_WindowId(tgtWin);
-    event.xany.display = Tk_Display(tgtWin);
-    ((XVirtualEvent *) &event)->name = Tk_GetUid(eventName);
+WM_POWERBROADCAST   0x0218
 
-    Tk_QueueWindowEvent(&event, TCL_QUEUE_TAIL);
-}
+#ifndef _WIN32_WCE
+#define PBT_APMQUERYSUSPEND             0x0000
+#define PBT_APMQUERYSTANDBY             0x0001
 
+#define PBT_APMQUERYSUSPENDFAILED       0x0002
+#define PBT_APMQUERYSTANDBYFAILED       0x0003
+
+#define PBT_APMSUSPEND                  0x0004
+#define PBT_APMSTANDBY                  0x0005
+
+#define PBT_APMRESUMECRITICAL           0x0006
+#define PBT_APMRESUMESUSPEND            0x0007
+#define PBT_APMRESUMESTANDBY            0x0008
+
+#define PBTF_APMRESUMEFROMFAILURE       0x00000001
+
+#define PBT_APMBATTERYLOW               0x0009
+#define PBT_APMPOWERSTATUSCHANGE        0x000A
+
+#define PBT_APMOEMEVENT                 0x000B
+#define PBT_APMRESUMEAUTOMATIC          0x0012
+#endif
+
+
+
+%-tokens:
+
+All WM_ processing scripts:
+
+%W, %L -- wParam and lParam as longs.
+
+
+WM_ENDSESSION:
+
+%E -- parsed wParam (true or false).
+
+%F -- list of parsed flags from lParam.
+
+
+WM_QUERYENDSESSION:
+
+%F -- list of parsed flags from lParam.
+
+
+WM_POWERBROADCAST:
+
+%T -- parsed type of event (wParam): PBT_APMPOWERSTATUSCHANGE and so on.
+
+
+PBT_APMPOWERSTATUSCHANGE:
+
+%A -- AC status.
+%B -- Battery status.
