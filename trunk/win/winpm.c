@@ -23,6 +23,11 @@ typedef struct {
 	Tcl_Interp *interp; /* Interpreter to which this state belongs */
 	HWND hwndMonitor; /* Handle to the monitoring window */
 	Tk_BindingTable bindings;
+	struct {
+		ULONG uMsg;
+		WPARAM wParam;
+		LPARAM lParam;
+	} last;
 } Winpm_InterpData;
 
 static const ClientData BindObject = (ClientData) 0xBAADF00D;
@@ -31,6 +36,10 @@ static const char *HandledEvents[] = {
 	"WM_QUERYENDSESSION",
 	"WM_ENDSESSION",
 	"WM_POWERBROADCAST",
+	"PBT_APMPOWERSTATUSCHANGE",
+	"PBT_APMRESUMEAUTOMATIC",
+	"PBT_APMRESUMESUSPEND",
+	"PBT_APMSUSPEND",
 	NULL
 };
 
@@ -68,7 +77,7 @@ Winpm_DispatchEvent (
 	if (script == NULL) {
 		return TCL_OK;
 	} else {
-		return Tcl_GlobalEval(statePtr->interp, script);
+		return Tcl_EvalEx(statePtr->interp, script, -1, TCL_EVAL_GLOBAL);
 	}
 }
 
@@ -189,7 +198,7 @@ Winpm_CmdGenerate (
 	if (script == NULL) {
 		return TCL_OK;
 	} else {
-		int code = Tcl_GlobalEval(interp, script);
+		int code = Tcl_EvalEx(interp, script, -1, TCL_EVAL_GLOBAL);
 		if (code == TCL_ERROR) {
 			/* TODO format error message */
 			return TCL_ERROR;
@@ -208,8 +217,8 @@ Winpm_CmdInfo (
 	Tcl_Obj *const objv[]
 	)
 {
-	static const char *topics[] = { "events", NULL };
-	typedef enum { INF_EVENTS } INF_Option;
+	static const char *topics[] = { "events", "lastmessage", NULL };
+	typedef enum { INF_EVENTS, INF_LASTMESSAGE } INF_Option;
 	int opt;
 
 	if (objc < 3) {
@@ -238,12 +247,24 @@ Winpm_CmdInfo (
 			return TCL_OK;
 		}
 		break;
+
+		case INF_LASTMESSAGE: {
+			Tcl_Obj *elems[3];
+
+			elems[0] = Tcl_NewLongObj(statePtr->last.uMsg);
+			elems[1] = Tcl_NewLongObj(statePtr->last.wParam);
+			elems[2] = Tcl_NewLongObj(statePtr->last.lParam);
+
+			Tcl_SetObjResult(interp, Tcl_NewListObj(3, elems));
+			return TCL_OK;
+		}
+		break;
 	}
 
 	return TCL_OK;
 }
 
-/* winpm injectwm uMsg wParam lParam */
+/* winpm _injectwm uMsg wParam lParam */
 static int
 Winpm_CmdInjectWM (
 	Tcl_Interp *interp,
@@ -283,7 +304,7 @@ Winpm_Cmd (
 	)
 {
 	static const char *options[] = { "bind", "generate", "info",
-		"injectwm", NULL };
+		"_injectwm", NULL };
 	typedef enum { WPM_BIND, WPM_GENERATE, WPM_INFO, WPM_INJECTWM } WPM_Option;
 	int opt;
 	Winpm_InterpData *statePtr;
@@ -327,9 +348,9 @@ Winpm_ProcessPowerBcast (
 	LPARAM lParam
 	)
 {
-	lParam = 0; // compiler shut up
+	CONST char *class;
 
-	Winpm_DispatchEvent(statePtr, NULL, "WM_POWERBROADCAST");
+	lParam = 0; // compiler shut up
 
 	switch (wParam) {
 		case PBT_APMPOWERSTATUSCHANGE: {
@@ -339,24 +360,55 @@ Winpm_ProcessPowerBcast (
 				/* TODO process async error */
 				Tcl_ResetResult(statePtr->interp);
 			}
+			class = "PBT_APMPOWERSTATUSCHANGE";
 		}
 		break;
 
 		case PBT_APMRESUMEAUTOMATIC:
+			class = "PBT_APMRESUMEAUTOMATIC";
 		break;
 
 		case PBT_APMRESUMESUSPEND:
+			class = "PBT_APMRESUMESUSPEND";
 		break;
 
 		case PBT_APMSUSPEND:
+			class = "PBT_APMSUSPEND";
 		break;
 
 //		case PBT_POWERSETTINGCHANGE:
 //		break;
 
 		default:
+			class = NULL;
 		break;
 	}
+
+	Winpm_DispatchEvent(statePtr, NULL, "WM_POWERBROADCAST");
+	if (class != NULL) {
+		Winpm_DispatchEvent(statePtr, NULL, class);
+	}
+}
+
+static Winpm_InterpData*
+GetWindowInterpData (
+	HWND hwnd
+	)
+{
+	return (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+}
+
+static void
+SaveLastMessage (
+	Winpm_InterpData *statePtr,
+	UINT uMsg,
+	WPARAM wParam,
+	LPARAM lParam
+	)
+{
+	statePtr->last.uMsg   = uMsg;
+	statePtr->last.wParam = wParam;
+	statePtr->last.lParam = lParam;
 }
 
 static LRESULT CALLBACK
@@ -367,31 +419,27 @@ WndProc(
 	LPARAM lParam
 )
 {
-	switch (uMsg) {
-		case WM_QUERYENDSESSION: {
-			Winpm_InterpData *statePtr;
-			int code;
+	Winpm_InterpData *statePtr;
 
-			statePtr = (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-			code = Winpm_DispatchEvent(statePtr, NULL, "WM_QUERYENDSESSION");
-			return code != TCL_CONTINUE;
-		}
+	switch (uMsg) {
+		case WM_QUERYENDSESSION:
+			statePtr = GetWindowInterpData(hwnd);
+			SaveLastMessage(statePtr, uMsg, wParam, lParam);
+			return Winpm_DispatchEvent(statePtr,
+					NULL, "WM_QUERYENDSESSION") !=  TCL_CONTINUE;
 		break;
 
-		case WM_ENDSESSION: {
-			Winpm_InterpData *statePtr;
-
-			statePtr = (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+		case WM_ENDSESSION:
+			statePtr = GetWindowInterpData(hwnd);
+			SaveLastMessage(statePtr, uMsg, wParam, lParam);
 			Winpm_DispatchEvent(statePtr, NULL, "WM_ENDSESSION");
-
 			return 0;
-		}
 		break;
 
 		case WM_POWERBROADCAST:
-			Winpm_ProcessPowerBcast(
-					(Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA),
-					wParam, lParam);
+			statePtr = GetWindowInterpData(hwnd);
+			SaveLastMessage(statePtr, uMsg, wParam, lParam);
+			Winpm_ProcessPowerBcast(statePtr, wParam, lParam);
 			return TRUE;
 		break;
 
@@ -473,7 +521,7 @@ Winpm_Cleanup(ClientData clientData)
 EXTERN int
 Winpm_Init(Tcl_Interp * interp)
 {
-	Winpm_InterpData *pdata;
+	Winpm_InterpData *statePtr;
 
 #ifdef USE_TCL_STUBS
 	if (Tcl_InitStubs(interp, "8.1", 0) == NULL) {
@@ -493,17 +541,19 @@ Winpm_Init(Tcl_Interp * interp)
 		return TCL_ERROR;
 	}
 
-	pdata = (Winpm_InterpData *) ckalloc(sizeof(Winpm_InterpData));
-	pdata->interp = interp;
+	statePtr = (Winpm_InterpData *) ckalloc(sizeof(Winpm_InterpData));
+	memset(statePtr, 0, sizeof(*statePtr));
 
-	if (CreateMonitorWindow(interp, pdata) != TCL_OK) {
+	statePtr->interp = interp;
+
+	if (CreateMonitorWindow(interp, statePtr) != TCL_OK) {
 		return TCL_ERROR;
 	}
 
-	pdata->bindings = Tk_CreateBindingTable(interp);
+	statePtr->bindings = Tk_CreateBindingTable(interp);
 
 	Tcl_CreateObjCommand(interp, "winpm", (Tcl_ObjCmdProc *) Winpm_Cmd,
-		(ClientData) pdata, (Tcl_CmdDeleteProc *) Winpm_Cleanup);
+		(ClientData) statePtr, (Tcl_CmdDeleteProc *) Winpm_Cleanup);
 
 	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
 		return TCL_ERROR;

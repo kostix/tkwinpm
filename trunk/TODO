@@ -16,9 +16,6 @@ NORMAL:
 * Implement extended event information retrieval
   (via [winpm info]).
 
-* Implement possibility to bind to PBT_ event classes of
-  WM_POWERBROADCAST message.
-
 * Implement %-expansion of bound scripts.
 
 * Module documentation.
@@ -30,7 +27,7 @@ LOW:
 * Substitute Tk binding handling with regular hashes
   and drop dependence on Tk.
 
-* Figure out how to enable linking agains Unicode Win32 API.
+* Figure out how to enable linking against Unicode Win32 API.
 
 * Implement proper retrieving and reporting of Win32 API errors.
 
