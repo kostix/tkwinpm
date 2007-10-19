@@ -14,6 +14,15 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <pbt.h> /* MinGW's windows.h doesn't include it for some reason */
+
+#ifndef ENDSESSION_CLOSEAPP
+#define ENDSESSION_CLOSEAPP 0x00000001L
+#endif
+
+#ifndef PBT_APMRESUMEAUTOMATIC
+#define PBT_APMRESUMEAUTOMATIC 0x0012
+#endif
 
 #include <tcl.h>
 #include <tk.h>
@@ -40,6 +49,11 @@ static const char *HandledEvents[] = {
 	"PBT_APMRESUMEAUTOMATIC",
 	"PBT_APMRESUMESUSPEND",
 	"PBT_APMSUSPEND",
+	"PBT_APMBATTERYLOW",
+	"PBT_APMOEMEVENT",
+	"PBT_APMQUERYSUSPEND",
+	"PBT_APMQUERYSUSPENDFAILED",
+	"PBT_APMRESUMECRITICAL",
 	NULL
 };
 
@@ -48,6 +62,7 @@ typedef struct {
 	char value[];
 } Winpm_PercentMap;
 
+#if 0
 static void
 Winpm_ExpandPercents (
 	Tcl_Interp *interp,
@@ -56,10 +71,95 @@ Winpm_ExpandPercents (
 	Tcl_DString *dsPtr
 	)
 {
-//	CONST char *string;
+	CONST char *string;
 
 	while (1) {
 		break;
+	}
+}
+#endif
+
+/* Code taken from win/tkWinTest.c of Tk
+ *----------------------------------------------------------------------
+ *
+ * AppendSystemError --
+ *
+ *	This routine formats a Windows system error message and places
+ *	it into the interpreter result.  Originally from tclWinReg.c.
+ *
+ * Results:
+ *	None.
+ *
+ * Side effects:
+ *	None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static void
+AppendSystemError(
+	Tcl_Interp *interp, /* Current interpreter. */
+	DWORD error)        /* Result code from error. */
+{
+	int length;
+	WCHAR *wMsgPtr;
+	char *msg;
+	char id[TCL_INTEGER_SPACE], msgBuf[24 + TCL_INTEGER_SPACE];
+	Tcl_DString ds;
+	Tcl_Obj *resultPtr = Tcl_GetObjResult(interp);
+
+	length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM
+		| FORMAT_MESSAGE_ALLOCATE_BUFFER, NULL, error,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (WCHAR *) &wMsgPtr,
+		0, NULL);
+	if (length == 0) {
+		char *msgPtr;
+
+		length = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM
+			| FORMAT_MESSAGE_ALLOCATE_BUFFER, NULL, error,
+			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char *) &msgPtr,
+			0, NULL);
+		if (length > 0) {
+			wMsgPtr = (WCHAR *) LocalAlloc(LPTR, (length + 1) * sizeof(WCHAR));
+			MultiByteToWideChar(CP_ACP, 0, msgPtr, length + 1, wMsgPtr,
+				length + 1);
+			LocalFree(msgPtr);
+		}
+	}
+	if (length == 0) {
+		if (error == ERROR_CALL_NOT_IMPLEMENTED) {
+			msg = "function not supported under Win32s";
+		} else {
+			sprintf(msgBuf, "unknown error: %ld", error);
+			msg = msgBuf;
+		}
+	} else {
+		Tcl_Encoding encoding;
+
+		encoding = Tcl_GetEncoding(NULL, "unicode");
+		msg = Tcl_ExternalToUtfDString(encoding, (char *) wMsgPtr, -1, &ds);
+		Tcl_FreeEncoding(encoding);
+		LocalFree(wMsgPtr);
+
+		length = Tcl_DStringLength(&ds);
+
+		/*
+		 * Trim the trailing CR/LF from the system message.
+		 */
+		if (msg[length-1] == '\n') {
+			msg[--length] = 0;
+		}
+		if (msg[length-1] == '\r') {
+			msg[--length] = 0;
+		}
+	}
+
+	sprintf(id, "%ld", error);
+	Tcl_SetErrorCode(interp, "WINDOWS", id, msg, (char *) NULL);
+	Tcl_AppendToObj(resultPtr, msg, length);
+
+	if (length != 0) {
+		Tcl_DStringFree(&ds);
 	}
 }
 
@@ -138,7 +238,7 @@ Winpm_CmdBind (
 
 		case 4: { /* Create or delete binding */
 			CONST char *event, *script;
-			long len;
+			int len;
 
 			if (Winpm_NormalizeEventName(interp, objv[2],
 					&event) != TCL_OK) {
@@ -200,7 +300,6 @@ Winpm_CmdGenerate (
 	} else {
 		int code = Tcl_EvalEx(interp, script, -1, TCL_EVAL_GLOBAL);
 		if (code == TCL_ERROR) {
-			/* TODO format error message */
 			return TCL_ERROR;
 		} else {
 			return TCL_OK;
@@ -217,8 +316,10 @@ Winpm_CmdInfo (
 	Tcl_Obj *const objv[]
 	)
 {
-	static const char *topics[] = { "events", "lastmessage", NULL };
-	typedef enum { INF_EVENTS, INF_LASTMESSAGE } INF_Option;
+	static const char *topics[] = { "events", "lastmessage",
+		"session", "power", NULL };
+	typedef enum { INF_EVENTS, INF_LASTMESSAGE,
+		INF_SESSION, INF_POWER } INF_Option;
 	int opt;
 
 	if (objc < 3) {
@@ -259,6 +360,111 @@ Winpm_CmdInfo (
 			return TCL_OK;
 		}
 		break;
+
+		case INF_SESSION: {
+			typedef struct {
+				LPARAM flag;
+				CONST char *name;
+			} SessFlagMap;
+			static CONST SessFlagMap fmap[] = {
+				{ ENDSESSION_CLOSEAPP, "ENDSESSION_CLOSEAPP" },
+				{ ENDSESSION_LOGOFF,   "ENDSESSION_LOGOFF" }
+			};
+			int i, final;
+			Tcl_Obj *elems[2];
+			Tcl_Obj *flagsObj;
+
+			if (statePtr->last.uMsg != WM_QUERYENDSESSION
+					&& statePtr->last.uMsg != WM_ENDSESSION) {
+				Tcl_SetResult(interp, "Information unavailable", TCL_STATIC);
+				return TCL_ERROR;
+			}
+
+			if (statePtr->last.uMsg == WM_ENDSESSION) {
+				final = statePtr->last.wParam;
+			} else {
+				final = 0;
+			}
+			elems[0] = Tcl_NewBooleanObj(final);
+
+			flagsObj = Tcl_NewListObj(0, NULL);
+			for (i = 0; i < sizeof(fmap)/sizeof(fmap[0]); ++i) {
+				if (statePtr->last.lParam & fmap[i].flag) {
+					if (Tcl_ListObjAppendElement(interp, flagsObj,
+							Tcl_NewStringObj(fmap[i].name,
+								-1)) != TCL_OK) {
+						return TCL_ERROR;
+					}
+				}
+			}
+			elems[1] = flagsObj;
+
+			Tcl_SetObjResult(interp, Tcl_NewListObj(2, elems));
+			return TCL_OK;
+		}
+		break;
+
+		case INF_POWER: {
+			SYSTEM_POWER_STATUS power;
+			CONST char *string;
+			int val;
+			Tcl_Obj *elems[5];
+
+			if (!GetSystemPowerStatus(&power)) {
+				Tcl_ResetResult(statePtr->interp);
+				AppendSystemError(statePtr->interp, GetLastError());
+				return TCL_ERROR;
+			}
+
+			switch (power.ACLineStatus) {
+				case 0:
+					string = "OFFLINE";
+					break;
+				case 1:
+					string = "ONLINE";
+					break;
+				default:
+					string = "UNKNOWN";
+					break;
+			}
+			elems[0] = Tcl_NewStringObj(string, -1);
+
+			switch (power.BatteryFlag) {
+				case 1:
+					string = "HIGH";
+					break;
+				case 2:
+					string = "LOW";
+					break;
+				case 4:
+					string = "CRITICAL";
+					break;
+				case 8:
+					string = "CHARGING";
+					break;
+				case 128:
+					string = "NONE";
+					break;
+				default:
+					string = "UNKNOWN";
+					break;
+			}
+			elems[1] = Tcl_NewStringObj(string, -1);
+
+			if (power.BatteryLifePercent == 255) {
+				val = -1;
+			} else {
+				val = power.BatteryLifePercent;
+			}
+			elems[2] = Tcl_NewIntObj(val);
+
+			elems[3] = Tcl_NewIntObj(power.BatteryLifeTime);
+			elems[4] = Tcl_NewIntObj(power.BatteryFullLifeTime);
+
+			Tcl_SetObjResult(interp, Tcl_NewListObj(5, elems));
+			return TCL_OK;
+		}
+		break;
 	}
 
 	return TCL_OK;
@@ -283,12 +489,13 @@ Winpm_CmdInjectWM (
 		return TCL_ERROR;
 	}
 
-	if (Tcl_GetLongFromObj(interp, objv[2], &uMsg) != TCL_OK
-			|| Tcl_GetLongFromObj(interp, objv[3], &wParam) != TCL_OK
+	if (Tcl_GetIntFromObj(interp, objv[2], &uMsg) != TCL_OK
+			|| Tcl_GetIntFromObj(interp, objv[3], &wParam) != TCL_OK
 			|| Tcl_GetLongFromObj(interp, objv[4], &lParam) != TCL_OK) {
 		return TCL_ERROR;
 	}
 
+	/* FIXME is it possible for SendMessage to return error? */
 	res = SendMessage(statePtr->hwndMonitor, uMsg, wParam, lParam);
 
 	Tcl_SetObjResult(interp, Tcl_NewLongObj(res));
@@ -341,7 +548,7 @@ Winpm_Cmd (
 	return TCL_OK;
 }
 
-static void
+static LRESULT
 Winpm_ProcessPowerBcast (
 	Winpm_InterpData *statePtr,
 	WPARAM wParam,
@@ -352,14 +559,13 @@ Winpm_ProcessPowerBcast (
 
 	lParam = 0; // compiler shut up
 
+	Winpm_DispatchEvent(statePtr, NULL, "WM_POWERBROADCAST");
+
 	switch (wParam) {
 		case PBT_APMPOWERSTATUSCHANGE: {
-			SYSTEM_POWER_STATUS ps;
-			if (!GetSystemPowerStatus(&ps)) {
-				/* TODO get error message */
-				/* TODO process async error */
-				Tcl_ResetResult(statePtr->interp);
-			}
+			/* TODO when %-expanding will be implemented
+			 * here we should call GetSystemPowerStatus()
+			 * and parse what it returns */
 			class = "PBT_APMPOWERSTATUSCHANGE";
 		}
 		break;
@@ -376,24 +582,52 @@ Winpm_ProcessPowerBcast (
 			class = "PBT_APMSUSPEND";
 		break;
 
-//		case PBT_POWERSETTINGCHANGE:
-//		break;
+		/* Events listed below were removed from Vista */
+
+		/* PBT_APMPOWERSTATUSCHANGE should be used instead */
+		case PBT_APMBATTERYLOW:
+			class = "PBT_APMBATTERYLOW";
+		break;
+
+		case PBT_APMOEMEVENT:
+			/* lParam holds OEM event code */
+			class = "PBT_APMOEMEVENT";
+		break;
+
+		case PBT_APMQUERYSUSPEND:
+			/* Special handling: callback script can prevent suspending */
+			if (Winpm_DispatchEvent(statePtr, NULL,
+						"PBT_APMQUERYSUSPEND") == TCL_CONTINUE) {
+				return BROADCAST_QUERY_DENY;
+			} else {
+				return TRUE;
+			}
+		break;
+
+		case PBT_APMQUERYSUSPENDFAILED:
+			class = "PBT_APMQUERYSUSPENDFAILED";
+		break;
+
+		/* PBT_APMRESUMEAUTOMATIC should be used in Vista */
+		case PBT_APMRESUMECRITICAL:
+			class = "PBT_APMRESUMECRITICAL";
+		break;
 
 		default:
 			class = NULL;
 		break;
 	}
 
-	Winpm_DispatchEvent(statePtr, NULL, "WM_POWERBROADCAST");
 	if (class != NULL) {
 		Winpm_DispatchEvent(statePtr, NULL, class);
 	}
+
+	return TRUE;
 }
 
 static Winpm_InterpData*
 GetWindowInterpData (
-	HWND hwnd
-	)
+	HWND hwnd)
 {
 	return (Winpm_InterpData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
 }
@@ -417,7 +651,7 @@ WndProc(
 	UINT uMsg,
 	WPARAM wParam,
 	LPARAM lParam
-)
+	)
 {
 	Winpm_InterpData *statePtr;
 
@@ -426,7 +660,7 @@ WndProc(
 			statePtr = GetWindowInterpData(hwnd);
 			SaveLastMessage(statePtr, uMsg, wParam, lParam);
 			return Winpm_DispatchEvent(statePtr,
-					NULL, "WM_QUERYENDSESSION") !=  TCL_CONTINUE;
+					NULL, "WM_QUERYENDSESSION") != TCL_CONTINUE;
 		break;
 
 		case WM_ENDSESSION:
@@ -439,8 +673,7 @@ WndProc(
 		case WM_POWERBROADCAST:
 			statePtr = GetWindowInterpData(hwnd);
 			SaveLastMessage(statePtr, uMsg, wParam, lParam);
-			Winpm_ProcessPowerBcast(statePtr, wParam, lParam);
-			return TRUE;
+			return Winpm_ProcessPowerBcast(statePtr, wParam, lParam);
 		break;
 
 		default:
@@ -451,8 +684,7 @@ WndProc(
 static int
 CreateMonitorWindow (
 	Tcl_Interp *interp,
-	Winpm_InterpData *pdata
-	)
+	Winpm_InterpData *statePtr)
 {
 	HINSTANCE  hinst;
 	WNDCLASSEX wc;
@@ -478,10 +710,10 @@ CreateMonitorWindow (
 	wc.lpszMenuName  = name;
 	wc.lpszClassName = name;
 
-	/* TODO error reporting */
-    
 	rc = RegisterClassEx(&wc);
 	if (rc == 0) {
+		Tcl_ResetResult(interp);
+		AppendSystemError(interp, GetLastError());
 		return TCL_ERROR;
 	}
 
@@ -489,15 +721,17 @@ CreateMonitorWindow (
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 		NULL, NULL, hinst, NULL );
 	if (hwnd == NULL) {
+		Tcl_ResetResult(interp);
+		AppendSystemError(interp, GetLastError());
 		return TCL_ERROR;
 	}
 
-	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG)pdata);
+	SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG)statePtr);
 
 	ShowWindow(hwnd, SW_HIDE);
 	UpdateWindow(hwnd);
 
-	pdata->hwndMonitor = hwnd;
+	statePtr->hwndMonitor = hwnd;
 
 	return TCL_OK;
 }
@@ -505,12 +739,12 @@ CreateMonitorWindow (
 static void
 Winpm_Cleanup(ClientData clientData)
 {
-	Winpm_InterpData *pdata = (Winpm_InterpData *) clientData;
+	Winpm_InterpData *statePtr = (Winpm_InterpData *) clientData;
 
-	Tk_DeleteBindingTable(pdata->bindings);
-	DestroyWindow(pdata->hwndMonitor);
+	Tk_DeleteBindingTable(statePtr->bindings);
+	DestroyWindow(statePtr->hwndMonitor);
 
-	ckfree((char *) pdata);
+	ckfree((char *) statePtr);
 }
 
 #ifdef BUILD_winpm

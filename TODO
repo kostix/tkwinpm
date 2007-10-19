@@ -13,14 +13,9 @@ used in production for simple cases.)
 
 NORMAL:
 
-* Implement extended event information retrieval
-  (via [winpm info]).
-
 * Implement %-expansion of bound scripts.
 
 * Module documentation.
-
-* MinGW support.
 
 LOW:
 
@@ -29,12 +24,7 @@ LOW:
 
 * Figure out how to enable linking against Unicode Win32 API.
 
-* Implement proper retrieving and reporting of Win32 API errors.
-
 * Code cleanup and comments.
-
-* Workarounds for old compilers (VC6) which don't know about
-  modern PBT_ event types.
 
 ? Implement wrapper subrommands for some "active" relevant Win32
   API calls for shutting down the system, logging off the user,
