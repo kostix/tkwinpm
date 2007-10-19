@@ -2,13 +2,8 @@ $Id$
 
 HIGH:
 
-* Implement background error reporting for bound scripts.
-  Possibly provide for disabling of scripts on errors.
-  Modify/create relevant tests in the test suite.
-
-(Completing of these two points will allow to release a
-preliminary working binary release which can be immediately
-used in production for simple cases.)
+* Implement tests for checking background error reporting for
+  callback scripts.
 
 NORMAL:
 
@@ -22,6 +17,8 @@ LOW:
   and drop dependence on Tk.
 
 * Figure out how to enable linking against Unicode Win32 API.
+  (Is it really needed? If we pass some sorts of string data to
+  it, we must ensure it's USC-2 when using Unicode API.)
 
 * Code cleanup and comments.
 

@@ -1,0 +1,27 @@
+[manpage_begin winpm 3tcl 0.1]
+[comment {$Id$}]
+
+[copyright {2007 Konstantin Khomoutov <flatworm@users.sourceforge.net>}]
+[moddesc {Windows Power and Session Management for Tcl/Tk}]
+
+[require Tcl ?8.1?]
+[require winpm ?0.1?]
+[comment {
+[usage [cmd tth::tiger] [opt options] [arg bitstring]]
+[usage [cmd tth::tth] [cmd digest] [opt options] [cmd -string] [arg bitstring]]
+[usage [cmd tth::tth] [cmd digest] [opt options] [cmd -chan] [arg channel]]
+[usage [cmd set] tthContext \[[cmd tth::tth] [cmd init]\]]
+[usage [cmd tth::tth] [cmd update] [arg tthContext] [arg bitstring]]
+[usage [cmd tth::tth] [cmd digest] [opt -context] [arg tthContext]]
+}]
+
+[description]
+
+[section AUTHORS]
+
+This extension is created by
+Konstantin Khomoutov <flatworm@users.sourceforge.net>
+
+[see_also twapi ffidl wm]
+[comment {vim:sytnax=tcl:tw=72:noet}]
+[manpage_end]
