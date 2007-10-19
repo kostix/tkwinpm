@@ -1,3 +1,6 @@
+testing of async errors: test event-5.1 in tests/event.test of Tcl.
+
+
 tk\generic\tkBind.c:
 ExpandPercents
 

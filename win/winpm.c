@@ -177,7 +177,16 @@ Winpm_DispatchEvent (
 	if (script == NULL) {
 		return TCL_OK;
 	} else {
-		return Tcl_EvalEx(statePtr->interp, script, -1, TCL_EVAL_GLOBAL);
+		int code;
+		Tcl_AllowExceptions(statePtr->interp);
+		code =  Tcl_EvalEx(statePtr->interp, script, -1, TCL_EVAL_GLOBAL);
+		if (code == TCL_ERROR) {
+			Tcl_AddErrorInfo(statePtr->interp, "\n    (command bound to ");
+			Tcl_AddErrorInfo(statePtr->interp, event);
+			Tcl_AddErrorInfo(statePtr->interp, " " PACKAGE_NAME " event)");
+			Tcl_BackgroundError(statePtr->interp);
+		}
+		return code;
 	}
 }
 
