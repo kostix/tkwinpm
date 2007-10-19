@@ -4,8 +4,7 @@ HIGH:
 
 * Implement background error reporting for bound scripts.
   Possibly provide for disabling of scripts on errors.
-
-* Implement test suite.
+  Modify/create relevant tests in the test suite.
 
 (Completing of these two points will allow to release a
 preliminary working binary release which can be immediately

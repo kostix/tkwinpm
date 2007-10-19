@@ -1,0 +1,340 @@
+# Commands covered:  winpm
+#
+# This file contains a collection of tests for one or more of the Tcl
+# built-in commands.  Sourcing this file into Tcl runs the tests and
+# generates output for errors.  No output means no errors were found.
+#
+# Copyright (c) 2007 Konstantin Khomoutov <flatworm@users.sourceforge.net>
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+#
+# RCS: @(#) $Id$
+
+if {[lsearch [namespace children] ::tcltest] == -1} {
+    package require tcltest
+    namespace import ::tcltest::*
+}
+
+package require winpm
+
+# Basic syntax:
+
+test winpm-syntax-1.1 {Calling w/o options results to an error} -body {
+	winpm
+} -returnCodes error \
+-result {wrong # args: should be "winpm option ?arg ...?"}
+
+test winpm-syntax-1.2 {Calling with incorrect option shows list of options} -body {
+	winpm fudge
+} -returnCodes error -match glob \
+-result {bad option "fudge": must be *}
+
+# Binding management:
+
+set wipe_bindings {
+	# Remove any existing bindings:
+	foreach e [winpm bind] {
+		winpm bind $e {}
+	}
+	if {[llength [winpm bind]] > 0} {
+		return -code error "Stale bindings: [winpm bind]"
+	}
+}
+
+test winpm-bind-1.1 {Empty list of bindings} -body {
+	winpm bind
+} -result {}
+
+test winpm-bind-1.2 {Getting script of unsupported event} -body {
+	winpm bind WM_FUDGE
+} -returnCodes error -match glob \
+-result {bad event "WM_FUDGE": must be*}
+
+test winpm-bind-1.3 {Getting script for unbound event is OK} -body {
+	winpm bind WM_POWERBROADCAST
+} -result {}
+
+test winpm-bind-1.4 {Binding to unsupported event} -body {
+	winpm bind WM_FUDGE {puts foobar}
+} -returnCodes error -match glob \
+-result {bad event "WM_FUDGE": must be*}
+
+test winpm-bind-1.5 {Binding to supported event} -body {
+	winpm bind WM_POWERBROADCAST {puts foo}
+} -result {}
+
+test winpm-bind-1.6 {Listing a bound script} -body {
+	winpm bind WM_QUERYENDSESSION {puts foobar}
+	winpm bind WM_QUERYENDSESSION
+} -result {puts foobar}
+
+test winpm-bind-1.7 {Replacing a script} -body {
+	winpm bind WM_POWERBROADCAST whatever
+	winpm bind WM_POWERBROADCAST new
+	winpm bind WM_POWERBROADCAST
+} -result new
+
+test winpm-bind-1.8 {Unbinding a script from event} -body {
+	winpm bind WM_ENDSESSION {puts foo}
+	winpm bind WM_ENDSESSION {}
+	winpm bind WM_ENDSESSION
+} -result {}
+
+test winpm-bind-1.9 {Unbinding multiple times is OK} -body {
+	winpm bind WM_ENDSESSION {puts foo}
+	winpm bind WM_ENDSESSION {}
+	winpm bind WM_ENDSESSION {}
+	winpm bind WM_ENDSESSION
+} -result {}
+
+test winpm-bind-1.10 {Appending a script} -body {
+	winpm bind WM_POWERBROADCAST {puts foo}
+	winpm bind WM_POWERBROADCAST {+puts bar}
+	winpm bind WM_POWERBROADCAST {+puts grill}
+	winpm bind WM_POWERBROADCAST
+} -result {puts foo
+puts bar
+puts grill}
+
+test winpm-bind-1.11 {Listing active bindings #1} -setup $wipe_bindings \
+-body {
+	winpm bind WM_ENDSESSION {puts foo}
+	winpm bind
+} -result WM_ENDSESSION
+
+test winpm-bind-1.12 {Listing active bindings #2} -setup $wipe_bindings \
+-body {
+	winpm bind WM_QUERYENDSESSION {puts foo}
+	winpm bind WM_ENDSESSION {puts bar}
+	lsort [winpm bind]
+} -result [lsort {WM_QUERYENDSESSION WM_ENDSESSION}]
+
+test winpm-bind-1.13 {Listing active bindings #3} -setup $wipe_bindings \
+-body {
+	winpm bind WM_QUERYENDSESSION {puts foo}
+	winpm bind WM_ENDSESSION {puts bar}
+	winpm bind WM_QUERYENDSESSION {}
+	winpm bind WM_POWERBROADCAST {puts grill}
+	winpm bind WM_ENDSESSION {}
+	winpm bind
+} -result WM_POWERBROADCAST
+
+test winpm-bind-1.14 {Abbreviated event: binding a script} -body {
+	winpm bind WM_QUE {puts foobar}
+	winpm bind WM_QUERYENDSESSION
+} -result {puts foobar}
+
+test winpm-bind-1.15 {Abbreviated event: retrieving a script} -body {
+	winpm bind WM_ENDSESSION whatever
+	winpm bind WM_E
+} -result whatever
+
+test winpm-bind-1.16 {Abbreviated event: removing a binding} -body {
+	winpm bind WM_POWERBROADCAST {puts foo}
+	winpm bind WM_POW {}
+	winpm bind WM_POWERBROADCAST
+} -result {}
+
+test winpm-bind-1.17 {Abbreviated event: appending a script} -body {
+	winpm bind WM_ENDSESSION one
+	winpm bind WM_ENDS +two
+	winpm bind WM_ENDSESSION
+} -result {one
+two}
+
+test winpm-bind-1.18 {Abbreviated option: bind} -body {
+	winpm b WM_QUERYENDSESSION blah
+	winpm b WM_QUERYENDSESSION
+} -result blah
+
+# List of supported events:
+
+test winpm-info-1.1 {Listing of supported events} -body {
+	lsort [winpm info events]
+} -result [lsort {
+	WM_QUERYENDSESSION
+	WM_ENDSESSION
+	WM_POWERBROADCAST
+	PBT_APMPOWERSTATUSCHANGE
+	PBT_APMRESUMEAUTOMATIC
+	PBT_APMRESUMESUSPEND
+	PBT_APMSUSPEND
+	PBT_APMBATTERYLOW
+	PBT_APMOEMEVENT
+	PBT_APMQUERYSUSPEND
+	PBT_APMQUERYSUSPENDFAILED
+	PBT_APMRESUMECRITICAL
+}]
+
+# Messages sending and processing:
+
+set WM_QUERYENDSESSION  0x0011
+set WM_ENDSESSION       0x0016
+set WM_POWERBROADCAST   0x0218
+
+set ENDSESSION_CLOSEAPP 0x00000001
+set ENDSESSION_LOGOFF   0x80000000
+
+set PBT_APMPOWERSTATUSCHANGE   0x0A
+set PBT_APMRESUMEAUTOMATIC     0x12
+set PBT_APMRESUMESUSPEND       0x07
+set PBT_APMSUSPEND             0x04
+set PBT_APMBATTERYLOW          0x09
+set PBT_APMOEMEVENT            0x0B
+set PBT_APMQUERYSUSPEND        0x00
+set PBT_APMQUERYSUSPENDFAILED  0x02
+set PBT_APMRESUMECRITICAL      0x06
+
+set BROADCAST_QUERY_DENY       [expr {0x424D5144 + 0}]
+
+set TRUE  1
+set FALSE 0
+
+test winpm-event-1.1 {Processing WM_QUERYENDSESSION} -setup $wipe_bindings \
+-body {
+	winpm bind WM_QUERYENDSESSION {
+		puts -nonewline A
+	}
+	winpm _injectwm $WM_QUERYENDSESSION 0 0
+} -result $TRUE -output A
+
+test winpm-event-1.2 {Cancelling WM_QUERYENDSESSION} -setup $wipe_bindings \
+-body {
+	winpm bind WM_QUERYENDSESSION {
+		puts -nonewline B
+		continue
+	}
+	winpm _injectwm $WM_QUERYENDSESSION 0 0
+} -result $FALSE -output B
+
+test winpm-event-1.3 {Processing WM_ENDSESSION} -setup $wipe_bindings \
+-body {
+	winpm bind WM_ENDSESSION {
+		puts -nonewline "processed WM_ENDSESSION"
+	}
+	winpm _injectwm $WM_ENDSESSION 0 0
+} -result 0 -output {processed WM_ENDSESSION}
+
+test winpm-event-1.4 {Processing WM_POWERBROADCAST} -setup $wipe_bindings \
+-body {
+	winpm bind WM_POWERBROADCAST {
+		puts -nonewline "processed WM_POWERBROADCAST"
+	}
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMPOWERSTATUSCHANGE 0
+} -result $TRUE -output {processed WM_POWERBROADCAST}
+
+test winpm-event-1.5 {WM_POWERBROADCAST + specific event class} \
+-setup $wipe_bindings -body {
+	winpm bind PBT_APMSUSPEND       { puts -nonewline B }
+	winpm bind PBT_APMRESUMESUSPEND { puts -nonewline C }
+	winpm bind WM_POWERBROADCAST    { puts -nonewline A }
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMSUSPEND 0
+} -result $TRUE -output AB
+
+test winpm-event-1.6 {WM_POWERBROADCAST + bogus event class} \
+-setup $wipe_bindings -body {
+	winpm bind WM_POWERBROADCAST    { puts -nonewline A }
+	winpm _injectwm $WM_POWERBROADCAST 1234567 0
+} -result $TRUE -output A
+
+test winpm-event-1.7 {Acknowledging PBT_APMQUERYSUSPEND} -setup $wipe_bindings \
+-body {
+	winpm bind PBT_APMQUERYSUSPEND {
+		puts -nonewline A
+	}
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMQUERYSUSPEND 0
+} -result $TRUE -output A
+
+test winpm-event-1.8 {Cancelling PBT_APMQUERYSUSPEND} -setup $wipe_bindings \
+-body {
+	winpm bind PBT_APMQUERYSUSPEND {
+		puts -nonewline B
+		continue
+	}
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMQUERYSUSPEND 0
+} -result $BROADCAST_QUERY_DENY -output B
+
+# TODO test handling of errors in callback scripts.
+
+# Last message introspection:
+
+proc same_event {a b} {
+	set res 1
+	foreach x $a y $b {
+		set res [expr {$res && ($x == $y)}]
+	}
+	set res
+}
+
+set zap_foo { if {[info exists foo]} { unset foo } }
+
+test winpm-lastmsg-1.1 {Getting last WM info #1} -setup $zap_foo -body {
+	winpm bind WM_QUERYENDSESSION {
+		set foo [winpm info lastmessage]
+	}
+	winpm _injectwm $WM_QUERYENDSESSION 0 0
+	same_event $foo [list $WM_QUERYENDSESSION 0 0]
+} -result 1
+
+test winpm-lastmsg-1.2 {Getting last WM info #2} -setup $zap_foo -body {
+	winpm bind WM_ENDSESSION {
+		set foo [winpm info lastmessage]
+	}
+	winpm _injectwm $WM_ENDSESSION 1 $ENDSESSION_CLOSEAPP
+	same_event $foo [list $WM_ENDSESSION 1 $ENDSESSION_CLOSEAPP]
+} -result 1
+
+# Session info introspection:
+
+proc leq {a b} {
+	set res 1
+	foreach x [lsort $a] y [lsort $b] {
+		set res [expr {$res && ($x == $y)}]
+	}
+	set res
+}
+
+proc same_session {a b} {
+	expr {
+		([lindex $a 0] == [lindex $b 0])
+		&&
+		[leq [lindex $a 1] [lindex $b 1]]
+	}
+}
+
+test winpm-sess-1.1 {Intro: WM_QUERYENDSESSION} -setup $zap_foo -body {
+	winpm bind WM_QUERYENDSESSION {
+		set foo [winpm info session]
+	}
+	winpm _injectwm $WM_QUERYENDSESSION 123 $ENDSESSION_CLOSEAPP
+	same_session $foo [list 0 ENDSESSION_CLOSEAPP]
+} -result 1
+
+test winpm-sess-1.2 {Intro: WM_ENDSESSION} -setup $zap_foo -body {
+	winpm bind WM_ENDSESSION {
+		set foo [winpm info session]
+	}
+	winpm _injectwm $WM_ENDSESSION \
+		1 [expr {$ENDSESSION_CLOSEAPP + $ENDSESSION_LOGOFF}]
+	same_session $foo [list 1 {ENDSESSION_LOGOFF ENDSESSION_CLOSEAPP}]
+} -result 1
+
+# TODO Reimplement this test when processing of errors in scripts is there
+test winpm-sess-1.3 {Getting session info after processing of some other msg} \
+-setup $zap_foo -body {
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMSUSPEND 0
+	winpm info session
+} -returnCodes error -result {Information unavailable}
+
+# System power state introspection:
+
+test winpm-power-1.1 {Get system power status} -body {
+	expr {[llength [winpm info power]] == 5}
+} -result 1
+
+# cleanup
+::tcltest::cleanupTests
+return
+
+# vim:syntax=tcl
