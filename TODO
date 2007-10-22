@@ -11,6 +11,9 @@ HIGH:
 * Write tests for handling of the case "appending a script when
   there's no script currently bound".
 
+* Drop "generate" subcommand since it's no more really needed
+  since there's "_injectwm" subcommand.
+
 NORMAL:
 
 * Implement %-expansion of bound scripts.
