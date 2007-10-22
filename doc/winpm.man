@@ -4,16 +4,15 @@
 [copyright {2007 Konstantin Khomoutov <flatworm@users.sourceforge.net>}]
 [moddesc {Windows Power and Session Management for Tcl/Tk}]
 
-[require Tcl ?8.1?]
-[require winpm ?0.1?]
-[comment {
-[usage [cmd tth::tiger] [opt options] [arg bitstring]]
-[usage [cmd tth::tth] [cmd digest] [opt options] [cmd -string] [arg bitstring]]
-[usage [cmd tth::tth] [cmd digest] [opt options] [cmd -chan] [arg channel]]
-[usage [cmd set] tthContext \[[cmd tth::tth] [cmd init]\]]
-[usage [cmd tth::tth] [cmd update] [arg tthContext] [arg bitstring]]
-[usage [cmd tth::tth] [cmd digest] [opt -context] [arg tthContext]]
+[comment { TODO:
+ * List all possible events.
+ * Provide examples.
+ * Extend the "Writing..." section.
 }]
+
+[require Tcl ?8.1?]
+[require Tk ?8.1?]
+[require winpm ?0.1?]
 
 [description]
 
@@ -46,27 +45,56 @@ Currently bindings to the following Windows messages are supported:
 	for convenience.
 [list_end]
 
+To be able to receive these messages this library creates a hidden
+top-level window managed by a custom window procedure (it's called
+"the monitoring window" throughout this manual). It should be
+noted that only the messages listed above are processed directly, all
+others are handed off to the [fun DefWindowProc] standard procedure.
+
 [para]
 All the functionality is encapsulated in the single command [cmd winpm]
 created in the global namespace when the package is loaded. Different
 kinds of action are achieved by using different subcommands of this
 command. They are described below.
 
-[section "Binding to events"]
+[section "BINDING TO EVENTS"]
+
+Before delving into the details, it should be noted that all the
+options to [cmd winpm] and the names of all events in any context may
+be abbreviated while such an abbreviation is not ambiguous.
 
 [list_begin definitions]
-	[call [cmd winpm] [arg bind]]
-	foobar
+	[call [cmd winpm] [method bind]]
+	Returns a list of events to which scripts are currently bound.
+
+	[call [cmd winpm] [method bind] [arg event]]
+	Returns a script which is bound to [arg event] or an empty
+	string is no script is bound to that event.
+
+	[call [cmd winpm] [method bind] [arg event] [arg script]]
+	Binds [arg script] to [arg event]. After this operation [arg script]
+	will be evaluated in the global scope each time [arg event] is
+	processed by the monitoring window.
+	[nl]
+	If the script starts with the "+" character, this script is appended
+	to the script which is already bound to [arg event] if any,
+	otherwise it's just installed as usually. The "+" character is
+	removed in any case before installing.
+	[nl]
+	If [arg script] is an empty string then the currently bound script
+	if removed, if any, otherwise this command does nothing.
+	[nl]
+	This command returns an empty string.
 [list_end]
 
-[section "Introspection of event/system info"]
+[section "INTROSPECTION OF EVENT/SYSTEM INFO"]
 
 [list_begin definitions]
-	[call [cmd winpm] [arg info] [arg events]]
+	[call [cmd winpm] [method info] [method events]]
 	Returns a list of all known events to which user's scripts can be
 	bound.
 
-	[call [cmd winpm] [arg info] [arg lastmessage]]
+	[call [cmd winpm] [method info] [method lastmessage]]
 	Returns a list of three integers corresponding to the [arg uMsg],
 	[arg wParam] and [arg lParam] parameters of the last processed
 	power management or session management event, in that order.
@@ -85,14 +113,166 @@ command. They are described below.
 		parameters. So it's best to use this form of the command from
 		within the callback scripts.
 	[list_end]
-	Before the first relevant message hits this package, this form of
-	the command returns three zero integers.
+	Before the first relevant message hits the monitoring window, this
+	form of the command returns a list of three zero integers.
 
-	[call [cmd winpm] [arg info] [arg session]]
-	mumble
+	[call [cmd winpm] [method info] [method session]]
+	Returns a list of two elements describing either the
+	last WM_QUERYENDSESSION or the last WM_ENDSESSION message processed
+	by the monitoring window. The elements of this list are, in order:
+	[list_begin enum]
+		[enum]
+		A boolean value indicating that the system is being shut down
+		and this process cannot be cancelled, i.e. the system may shut
+		down at any moment after processing of this message is over.
+		This flag is only relevant for the WM_ENDSESSION message, for
+		which it can take values 0 or 1; for the WM_QUERYENDSESSION
+		message this flag is always 0.
+		[nl]
+		This list element corresponds to the [arg wParam] parameter
+		of the message.
 
-	[call [cmd winpm] [arg info] [arg power]]
-	grill
+		[enum]
+		A list containing variable number of elements (0..2 currently)
+		which are string flags providing additional information about
+		how the system is being shut down. If a particular flag is
+		present in the list then the contition it represents holds.
+		These flags are:
+		[list_begin definitions]
+			[lst_item ENDSESSION_CLOSEAPP]
+			The application is holding a file that must be replaced
+			and the system asks appliaction to close itself.
+			
+			[lst_item ENDSESSION_LOGOFF]
+			The user is logging off.
+		[list_end]
+
+		This list element corresponds to the [arg lParam] parameter of
+		the message.
+	[list_end]
+
+	For more information about how to intepret this information read the
+	MSDN documentation regarding the WM_QUERYENDSESSION and
+	WM_ENDSESSION Windows messages.
+
+	[call [cmd winpm] [method info] [method power]]
+	Retrieves the current state of the system's power sources as a list
+	of five elements, they are:
+	[list_begin enum]
+		[enum]
+		Status of the AC line (if any). This string parameter can take
+		these values:
+		[list_begin definitions]
+			[lst_item ONLINE]
+			The AC line is active, the system runs on AC power source.
+
+			[lst_item OFFLINE]
+			The AC line is offline, the system runs on battery.
+			
+			[lst_item UNKNOWN]
+			The state of AC line is unknown.
+		[list_end]
+
+		[enum]
+		The system's battery charge status (if any).
+		This string parameter can take these values:
+		[list_begin definitions]
+			[lst_item HIGH]
+			The battery is at more than 66% of its capacity.
+			
+			[lst_item LOW]
+			The battery's capacity is less than 33%.
+
+			[lst_item CRITICAL]
+			The battery's capacity is below 5%.
+
+			[lst_item CHARGING]
+			The battery is being charged.
+
+			[lst_item NONE]
+			No system battry present.
+
+			[lst_item UNKNOWN]
+			The state of the system battery is unknown.
+		[list_end]
+
+		[enum]
+		The percentage of full battery life remaining.
+		This integer value can take values from 0 to 100,
+		or -1 when this information is unavailable.
+
+		[enum]
+		The estimated number of seconds of the remaining battery life.
+		If this value is -1, the information is unavailable.
+
+		[enum]
+		The number of seconds of the full battery life (when at full
+		charge) or -1 if it's unknown.
+	[list_end]
+
+	This form of the command is a wrapper around the
+	[fun GetSystemPowerStatus] Win32 API procedure and the information
+	returned is parsed from the SYSTEM_POWER_STATUS structure returned
+	by that procedure. Refer to the relevant parts of MSDN documentation
+	for more info.
+
+	[call [cmd winpm] [method _injectwm] [arg uMsg] [arg wParam] [arg lParam]]
+	This form of the command is provided for testing purposes and it
+	allows to construct and send any Windows message to the monitoring
+	window. The message is constructed from the arguments of this
+	command (which must be integer values) and is sent using the
+	[fun SendMessage] Windows API procedure.
+	[nl]
+	This command returns an integer which is the result code returned by
+	the [fun SendMessage] call.
+[list_end]
+
+[section "WRITING CALLBACK SCRIPTS"]
+
+The key points regarding callback scripts are:
+[list_begin bullet]
+	[bullet]
+	Callback scripts are evaluated in the global namespace on the top
+	level of the stack.
+
+	[bullet]
+	Errors in callback scripts are handled using the "background error"
+	mechanism ([cmd bgerror] command).
+
+	[bullet]
+	The return values of all scripts are discarded but the return code
+	TCL_CONTINUE can be used in scripts bound to certain events to
+	influence the behaviour of the system (see below).
+[list_end]
+
+[section EXAMPLES]
+
+...
+
+[section BUGS]
+
+[list_begin bullet]
+	[bullet]
+	"Percent substitution" isn't available for callback scripts so they
+	should use the introspection capabilities of this library to get the
+	information they need; it currently can't be just "embedded" into
+	the script like it's possible with Tk events.
+
+	[bullet]
+	This library creates one hidden top-level window in each interpreter
+	it's loaded into. It would be more natural to reuse an existing
+	window (like ".") but this requires subversion of the window
+	procedure of such a window which is a much worse approach.
+
+	[bullet]
+	Currently the window procedure of the monitoring window doesn't
+	attempt to "filter out" deadly messages like WM_CLOSE.
+
+	[bullet]
+	This package depends on Tk (to use it's bindings management
+	mechanisms) while it appears it doesn't necessarily need to be.
+	On the other hand, it's currently unclear whether this package can
+	be decoupled from Tk due to some other reasons.
 [list_end]
 
 [section AUTHORS]
@@ -100,6 +280,6 @@ command. They are described below.
 This extension is created by
 Konstantin Khomoutov <flatworm@users.sourceforge.net>
 
-[see_also twapi ffidl wm]
+[see_also twapi ffidl bgerror wm]
 [comment {vim:sytnax=tcl:tw=72:noet}]
 [manpage_end]
