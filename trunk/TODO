@@ -4,6 +4,13 @@ HIGH:
 
 * Module documentation.
 
+* Check the format of [winpm info power] return value:
+  it seems that some info (number of secs of batt life is
+  different that of stated in the documentation).
+
+* Write tests for handling of the case "appending a script when
+  there's no script currently bound".
+
 NORMAL:
 
 * Implement %-expansion of bound scripts.
