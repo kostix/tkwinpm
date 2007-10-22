@@ -17,6 +17,84 @@
 
 [description]
 
+This package provides Tcl command which allows binding of Tcl
+scripts to Windows power management and session management events
+(broadcast messages).
+
+[para]
+Binding semantics are analogous to those of [package Tk]'s bindings
+provided by the [cmd bind] command.
+
+[para]
+Currently bindings to the following Windows messages are supported:
+[list_begin definitions]
+	[lst_item WM_QUERYENDSESSION]
+	This message is broadcasted when the system wants to shut down or
+	reboot. It's possible to cancel this process from the user's
+	callback script (see below).
+
+	[lst_item WM_ENDSESSION]
+	Broadcasted when the system is about to shut down or reboot and this
+	process is irreversible.
+
+	[lst_item WM_POWERBROADCAST]
+	This message is broadcasted when the system's power state changes
+	such as the system prepares to suspend or just resumed normal
+	operation after having been suspended. This messaage have several
+	distinguished "classes" (or "topics") referring to different power
+	management events and it's possible to bind to them independently
+	for convenience.
+[list_end]
+
+[para]
+All the functionality is encapsulated in the single command [cmd winpm]
+created in the global namespace when the package is loaded. Different
+kinds of action are achieved by using different subcommands of this
+command. They are described below.
+
+[section "Binding to events"]
+
+[list_begin definitions]
+	[call [cmd winpm] [arg bind]]
+	foobar
+[list_end]
+
+[section "Introspection of event/system info"]
+
+[list_begin definitions]
+	[call [cmd winpm] [arg info] [arg events]]
+	Returns a list of all known events to which user's scripts can be
+	bound.
+
+	[call [cmd winpm] [arg info] [arg lastmessage]]
+	Returns a list of three integers corresponding to the [arg uMsg],
+	[arg wParam] and [arg lParam] parameters of the last processed
+	power management or session management event, in that order.
+	This command is most useful to be used by a script bound to an event
+	when the author of such a script wants to get his/her hands on the
+	raw data send by Windows for some reason.
+	[nl]
+	You must observe several things when using this facility:
+	[list_begin bullet]
+		[bullet]
+		Only those Windows messages that are handled by this package
+		are processed and can be inspected.
+		[bullet]
+		Only the last message processed is available for inspection,
+		i.e. each message processed overwrites this data with its
+		parameters. So it's best to use this form of the command from
+		within the callback scripts.
+	[list_end]
+	Before the first relevant message hits this package, this form of
+	the command returns three zero integers.
+
+	[call [cmd winpm] [arg info] [arg session]]
+	mumble
+
+	[call [cmd winpm] [arg info] [arg power]]
+	grill
+[list_end]
+
 [section AUTHORS]
 
 This extension is created by
