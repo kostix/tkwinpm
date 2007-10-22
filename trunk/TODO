@@ -2,14 +2,11 @@ $Id$
 
 HIGH:
 
-* Implement tests for checking background error reporting for
-  callback scripts.
+* Module documentation.
 
 NORMAL:
 
 * Implement %-expansion of bound scripts.
-
-* Module documentation.
 
 LOW:
 
