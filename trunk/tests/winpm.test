@@ -255,8 +255,6 @@ test winpm-event-1.8 {Cancelling PBT_APMQUERYSUSPEND} -setup $wipe_bindings \
 	winpm _injectwm $WM_POWERBROADCAST $PBT_APMQUERYSUSPEND 0
 } -result $BROADCAST_QUERY_DENY -output B
 
-# TODO test handling of errors in callback scripts.
-
 # Last message introspection:
 
 proc same_event {a b} {
@@ -320,7 +318,6 @@ test winpm-sess-1.2 {Intro: WM_ENDSESSION} -setup $zap_foo -body {
 	same_session $foo [list 1 {ENDSESSION_LOGOFF ENDSESSION_CLOSEAPP}]
 } -result 1
 
-# TODO Reimplement this test when processing of errors in scripts is there
 test winpm-sess-1.3 {Getting session info after processing of some other msg} \
 -setup $zap_foo -body {
 	winpm _injectwm $WM_POWERBROADCAST $PBT_APMSUSPEND 0
@@ -332,6 +329,61 @@ test winpm-sess-1.3 {Getting session info after processing of some other msg} \
 test winpm-power-1.1 {Get system power status} -body {
 	expr {[llength [winpm info power]] == 5}
 } -result 1
+
+# Handling of errors in callback scripts:
+
+set bgerror_subvert {
+	if {[info comm bgerror] != ""} {
+		rename bgerror bgerror.orig
+	}
+
+	variable WinpmError {}
+
+	proc bgerror msg {
+		variable WinpmError
+		lappend WinpmError $msg
+	}
+}
+
+set bgerror_reset {
+	rename bgerror {}
+	if {[info comm bgerror.orig] != ""} {
+		rename bgerror.orig bgerror
+	}
+}
+
+test winpm-error-1.1 {Error in callback script} -setup $bgerror_subvert -body {
+	winpm bind PBT_APMSUSPEND {
+		puts -nonewline A
+		error Kaboom!
+		puts -nonewline B
+	}
+	winpm _injectwm $WM_POWERBROADCAST $PBT_APMSUSPEND 0
+	update idletasks
+	set WinpmError
+} -cleanup $bgerror_reset -result Kaboom! -output A
+
+test winpm-error-1.2 {Accumulating errors in callback scripts} \
+-setup $bgerror_subvert -body {
+	winpm bind PBT_APMSUSPEND {
+		puts -nonewline A
+		error E1
+		puts -nonewline B
+	}
+	winpm bind PBT_APMPOWERSTATUSCHANGE {
+		puts -nonewline X
+		error E2
+		puts -nonewline Y
+	}
+	after idle [list \
+		winpm _injectwm $WM_POWERBROADCAST $PBT_APMSUSPEND 0]
+	after idle [list \
+		winpm _injectwm $WM_POWERBROADCAST $PBT_APMPOWERSTATUSCHANGE 0]
+	after idle [list \
+		winpm _injectwm $WM_POWERBROADCAST $PBT_APMPOWERSTATUSCHANGE 0]
+	update idletasks
+	set WinpmError
+} -cleanup $bgerror_reset -result [list E1 E2 E2] -output AXX
 
 # cleanup
 ::tcltest::cleanupTests
