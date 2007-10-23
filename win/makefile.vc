@@ -161,6 +161,7 @@ Please `cd` to its location first.
 PROJECT = winpm
 
 PROJECT_REQUIRES_TK = 1
+UNICODE = 1
 !include "rules.vc"
 
 DOTVERSION      = 0.1
@@ -224,6 +225,11 @@ cdebug	= -Zi -WX $(DEBUGFLAGS)
 ### Declarations common to all compiler options
 cwarn = -D _CRT_SECURE_NO_DEPRECATE -D _CRT_NONSTDC_NO_DEPRECATE
 cflags = -nologo -c $(COMPILERFLAGS) $(cwarn) -Fp$(TMP_DIR)^\
+
+# Unicode build (fooW), _UNICODE macro is needed for TCHAR and friends:
+!ifdef UNICODE
+cflags = $(cflags) -DUNICODE -D_UNICODE
+!endif
 
 # Warning level
 !if $(FULLWARNINGS)

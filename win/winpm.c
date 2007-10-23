@@ -14,6 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <tchar.h>
 #include <pbt.h> /* MinGW's windows.h doesn't include it for some reason */
 
 #ifndef ENDSESSION_CLOSEAPP
@@ -27,6 +28,13 @@
 #include <tcl.h>
 #include <tk.h>
 #include <tkPlatDecls.h>
+
+typedef struct {
+	int classRegistered;
+	int instances;
+} Winpm_PackageData;
+
+static Winpm_PackageData globalState;
 
 typedef struct {
 	Tcl_Interp *interp; /* Interpreter to which this state belongs */
@@ -283,39 +291,6 @@ Winpm_CmdBind (
 	}
 }
 
-/* winpm generate EVENT */
-static int
-Winpm_CmdGenerate (
-	Tcl_Interp *interp,
-	Tk_BindingTable bindings,
-	int objc,
-	Tcl_Obj *const objv[]
-	)
-{
-	CONST char *event, *script;
-
-	if (objc != 3) {
-		Tcl_WrongNumArgs(interp, 2, objv, "event");
-		return TCL_ERROR;
-	}
-
-	if (Winpm_NormalizeEventName(interp, objv[2],
-				&event) != TCL_OK) return TCL_ERROR;
-
-	script = Tk_GetBinding(interp, bindings,
-			BindObject, event);
-	if (script == NULL) {
-		return TCL_OK;
-	} else {
-		int code = Tcl_EvalEx(interp, script, -1, TCL_EVAL_GLOBAL);
-		if (code == TCL_ERROR) {
-			return TCL_ERROR;
-		} else {
-			return TCL_OK;
-		}
-	}
-}
-
 /* winpm info arg ?arg ...? */
 static int
 Winpm_CmdInfo (
@@ -326,9 +301,9 @@ Winpm_CmdInfo (
 	)
 {
 	static const char *topics[] = { "events", "lastmessage",
-		"session", "power", NULL };
+		"session", "power", "id", NULL };
 	typedef enum { INF_EVENTS, INF_LASTMESSAGE,
-		INF_SESSION, INF_POWER } INF_Option;
+		INF_SESSION, INF_POWER, INF_ID } INF_Option;
 	int opt;
 
 	if (objc < 3) {
@@ -474,6 +449,14 @@ Winpm_CmdInfo (
 			return TCL_OK;
 		}
 		break;
+
+		case INF_ID: {
+			char buf[sizeof("0xFFFFFFFF")];
+			sprintf(buf, "0x%08X", statePtr->hwndMonitor);
+			Tcl_SetObjResult(interp, Tcl_NewStringObj(buf, -1));
+			return TCL_OK;
+		}
+		break;
 	}
 
 	return TCL_OK;
@@ -519,9 +502,8 @@ Winpm_Cmd (
 	Tcl_Obj *const objv[]
 	)
 {
-	static const char *options[] = { "bind", "generate", "info",
-		"_injectwm", NULL };
-	typedef enum { WPM_BIND, WPM_GENERATE, WPM_INFO, WPM_INJECTWM } WPM_Option;
+	static const char *options[] = { "bind", "info", "_injectwm", NULL };
+	typedef enum { WPM_BIND, WPM_INFO, WPM_INJECTWM } WPM_Option;
 	int opt;
 	Winpm_InterpData *statePtr;
 
@@ -539,10 +521,6 @@ Winpm_Cmd (
 	switch (opt) {
 		case WPM_BIND:
 			return Winpm_CmdBind(interp, statePtr->bindings, objc, objv);
-		break;
-
-		case WPM_GENERATE:
-			return Winpm_CmdGenerate(interp, statePtr->bindings, objc, objv);
 		break;
 
 		case WPM_INFO:
@@ -695,40 +673,52 @@ CreateMonitorWindow (
 	Tcl_Interp *interp,
 	Winpm_InterpData *statePtr)
 {
-	HINSTANCE  hinst;
-	WNDCLASSEX wc;
-	ATOM       rc;
-	CHAR       title[] = "TkWinPMMonitorWindow";
-	CHAR       name[]  = "TkWinPMMonitorWindowClass";
-	HWND       hwnd;
+	CONST TCHAR name[]  = _T("TkWinPMMonitorWindow");
+	CONST TCHAR titlePfx[] = _T("TkWinPMMonitorWindow");
+
+	HINSTANCE   hinst;
+	WNDCLASSEX  wc;
+	ATOM        rc;
+	TCHAR       title[256];
+	HWND        hwnd;
 
 	hinst = Tk_GetHINSTANCE();
 
-	memset(&wc, 0, sizeof(wc));
-    
-	wc.cbSize        = sizeof(WNDCLASSEX);
-	wc.style         = CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc   = (WNDPROC) WndProc;
-	wc.cbClsExtra    = 0;
-	wc.cbWndExtra    = 0;
-	wc.hInstance     = hinst;
-	wc.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
-	wc.hIconSm       = LoadIcon(NULL, IDI_APPLICATION);
-	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = (HBRUSH) COLOR_WINDOW;
-	wc.lpszMenuName  = name;
-	wc.lpszClassName = name;
+	if (!globalState.classRegistered) {
+		memset(&wc, 0, sizeof(wc));
+		
+		wc.cbSize        = sizeof(WNDCLASSEX);
+		wc.style         = CS_HREDRAW | CS_VREDRAW;
+		wc.lpfnWndProc   = (WNDPROC) WndProc;
+		wc.cbClsExtra    = 0;
+		wc.cbWndExtra    = 0;
+		wc.hInstance     = hinst;
+		wc.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
+		wc.hIconSm       = LoadIcon(NULL, IDI_APPLICATION);
+		wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+		wc.hbrBackground = (HBRUSH) COLOR_WINDOW;
+		wc.lpszMenuName  = name;
+		wc.lpszClassName = name;
 
-	rc = RegisterClassEx(&wc);
-	if (rc == 0) {
-		Tcl_ResetResult(interp);
-		AppendSystemError(interp, GetLastError());
-		return TCL_ERROR;
+		rc = RegisterClassEx(&wc);
+		if (rc == 0) {
+			Tcl_ResetResult(interp);
+			AppendSystemError(interp, GetLastError());
+			return TCL_ERROR;
+		}
+
+		globalState.classRegistered = 1;
 	}
 
-	hwnd = CreateWindow( name, title, WS_OVERLAPPEDWINDOW,
+	_tcscpy(title, titlePfx);
+	if (globalState.instances >= 1) {
+		_stprintf(title + _tcslen(title),
+				_T(" #%d"), globalState.instances);
+	}
+
+	hwnd = CreateWindow(name, title, WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-		NULL, NULL, hinst, NULL );
+		NULL, NULL, hinst, NULL);
 	if (hwnd == NULL) {
 		Tcl_ResetResult(interp);
 		AppendSystemError(interp, GetLastError());
@@ -754,6 +744,8 @@ Winpm_Cleanup(ClientData clientData)
 	DestroyWindow(statePtr->hwndMonitor);
 
 	ckfree((char *) statePtr);
+
+	--globalState.instances;
 }
 
 #ifdef BUILD_winpm
@@ -801,6 +793,8 @@ Winpm_Init(Tcl_Interp * interp)
 	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
 		return TCL_ERROR;
 	}
+
+	++globalState.instances;
 
 	return TCL_OK;
 }
