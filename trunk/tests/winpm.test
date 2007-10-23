@@ -148,6 +148,12 @@ test winpm-bind-1.18 {Abbreviated option: bind} -body {
 	winpm b WM_QUERYENDSESSION
 } -result blah
 
+test winpm-bind-1.19 {Appending to non-existing script} -body {
+	winpm bind WM_ENDSESSION {}
+	winpm bind WM_ENDSESSION +grill
+	winpm bind WM_ENDSESSION
+} -result grill
+
 # List of supported events:
 
 test winpm-info-1.1 {Listing of supported events} -body {
@@ -330,6 +336,17 @@ test winpm-power-1.1 {Get system power status} -body {
 	expr {[llength [winpm info power]] == 5}
 } -result 1
 
+# Monitor window id:
+
+test winpm-id-1.1 {Getting monitor window id} -body {
+	set id [winpm info id]
+	expr {
+		[string match 0x* $id]
+		&&
+		[string is xdigit [string range $id 2 end]]
+	}
+} -result 1
+
 # Handling of errors in callback scripts:
 
 set bgerror_subvert {
@@ -384,6 +401,24 @@ test winpm-error-1.2 {Accumulating errors in callback scripts} \
 	update idletasks
 	set WinpmError
 } -cleanup $bgerror_reset -result [list E1 E2 E2] -output AXX
+
+# Slave interpreters:
+
+set reap_slaves {
+	foreach interp [interp slaves] {
+		interp delete $interp
+	}
+}
+
+if 0 {
+test winpm-slave-1.1 {Package is loaded several times in one process} \
+-setup $reap_slaves -body {
+	interp create foo
+	interp eval foo { package require winpm }
+	interp create bar
+	interp eval bar { package require winpm }
+} -result {}
+}
 
 # cleanup
 ::tcltest::cleanupTests
