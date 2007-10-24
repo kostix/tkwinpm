@@ -16,8 +16,6 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     namespace import ::tcltest::*
 }
 
-package require winpm
-
 # Basic syntax:
 
 test winpm-syntax-1.1 {Calling w/o options results to an error} -body {

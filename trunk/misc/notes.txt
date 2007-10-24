@@ -70,3 +70,57 @@ PBT_APMPOWERSTATUSCHANGE:
 
 %A -- AC status.
 %B -- Battery status.
+
+
+Pat Thoyts on tcltest and stuff (24-Oct-2007):
+
+[02:34]<kostix> I thought all tests are being run in one interp by default
+[02:34]<patthoyts> no
+[02:35]<patthoyts> the default is that it launches a new process for each file and quite a lot of them create interps for various things
+[02:35]<kostix> hmm
+[02:36]<kostix> I have just one test file
+[02:36]<kostix> but this probably doesn't matter
+[02:36]<patthoyts> if you want a single process you add -singleproc 1
+[02:36]<patthoyts> I use that for debugging tcl from visual studio
+[02:37]<patthoyts> create a test that crashes, set the debug app to tcltest -singleproc 1 -file ... and go.
+[02:38]<kostix> and multiple interps are just "some instances" in that wery shell process, in the same thread, right?
+[02:39]<kostix> (unless I use Thread and stuff, of course)
+[02:39]<patthoyts> yes
+[02:39]<kostix> thanks
+[02:39]<kostix> ah
+[02:39]<kostix> two more questions
+[02:39]<kostix> 1) is it possible to link procs from MSVCRT statically?
+[02:40]<patthoyts> No
+[02:40]<patthoyts> why would you want to.
+[02:41]<patthoyts> If you needs a static c runtime you link to libc
+[02:41]<kostix> 2) when I run "nmake -f makefile.vc test" from where the library to test is taken? from the build place or from the usual places (auto_path)?
+[02:41]<patthoyts> -MD links to msvcrt, -MT is libc multithreaded, -ML is libc -non-multithread
+[02:41]<kostix> I have tried VC8 and it links the extension against msvcrt8.dll which is not ubiquituous yet
+[02:41]<patthoyts> Ah
+[02:42]<patthoyts> thats why you use msvc 6
+[02:42]<patthoyts> MS decided to make everyone ship msvcrt8 with their apps.
+[02:42]<kostix> Ati video drivers for example event bundle that dll and it's an option to be installed
+[02:42]<kostix> yeah
+[02:42]<patthoyts> That way your application uses the msvcrt that it was built with.
+[02:42]<patthoyts> crappy plan
+[02:43]<patthoyts> If you link in the manifest then it will find the system msvcrt8 -- but XP or older might not have that
+[02:43]<patthoyts> This is why activestate build with msvc6 for instance.
+[02:44]<kostix> actually it's not that I'm very fond of VC8 but when I got failing Trf when built with -Ox using VC6 I thought it's time to try more recent compiler
+[02:44]<patthoyts> You always must run nmake -f makefile.vc from the directory that makefile.vc lives in. It actually checks that itself.
+[02:45]<kostix> so does it use .\Release\whatever.dll or finds in in the Tcl library (installed) when running tests?
+[02:46]<kostix> this one I don't quite get yet
+[02:46]<kostix> and it might shed some light on my RegisterClassEx trouble
+[02:47]<patthoyts> I write the test section to load the library explicitly as built and then arrange to source the test files. The tile win/makefile.vc is a good example i think
+[02:48]<patthoyts> Sometimes you have to change directory to the test dir in the tcl script that launches the tests
+[02:48]<kostix> ah, you mean I should not do "package require mylib" but rather load blahblah\mylib.dll?
+[02:48]<patthoyts> tls needs that
+[02:48]<patthoyts> yeah
+[02:48]<kostix> ah, thanks
+[02:48]<patthoyts> load $(PRJLIB:\=/)
+[02:49]<patthoyts> or maybe tile's version is safer : load [file join [file normalize {$(OUT_DIR)}] $(PRJLIBNAME)] Tile
+[02:49]<patthoyts> Might work better if there is a space in the build path
+[02:51]<kostix> ideally it should also work with mingw builds
+[02:52]<patthoyts> err - look at the tile makefile.vc
+[02:52]<patthoyts> I do the load in a script _before_ we source the all.tcl from the tests folder
+[02:53]<kostix> hmm, ok
+[02:53]<patthoyts> configure/make fiddles with the environment instead to get tcl to look in the right place
