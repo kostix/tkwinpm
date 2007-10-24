@@ -6,13 +6,18 @@ HIGH:
   wish/tclsh but fails with "Class already registered"
   from within tcltest suite.
 
-* Check the format of [winpm info power] return value:
-  it seems that some info (number of secs of batt life is
-  different that of stated in the documentation).
+* Think of possible threading issues (since now we're 
+  using the process-global state.
+
+* Bring MinGW version in sync.
+
+* Write INSTALL and a short README files.
 
 NORMAL:
 
 * Implement %-expansion of bound scripts.
+
+* Create simple release packaging facilities.
 
 LOW:
 

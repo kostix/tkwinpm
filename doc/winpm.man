@@ -138,8 +138,8 @@ be abbreviated while such an abbreviation is not ambiguous.
 
 	[call [cmd winpm] [method info] [method lastmessage]]
 	Returns a list of three integers corresponding to the [arg uMsg],
-	[arg wParam] and [arg lParam] parameters of the last processed
-	power management or session management event, in that order.
+	[arg wParam] and [arg lParam] parameters, in that order, of the
+	last processed power management or session management event.
 	This command is most useful to be used by a script bound to an event
 	when the author of such a script for some reason wants to get his/her
 	hands on the raw message that script is processing.
@@ -147,8 +147,10 @@ be abbreviated while such an abbreviation is not ambiguous.
 	You must observe several things when using this facility:
 	[list_begin bullet]
 		[bullet]
-		Only those Windows messages that are handled by this package
-		are processed and can be inspected.
+		Only the information from those Windows messages that can be
+		processed using this library is recorded and can be inspected,
+		i.e. not all messages that reach the monitoring window are noticed
+		by it.
 		[bullet]
 		Only the last message processed is available for inspection,
 		i.e. each message processed overwrites this data with its
@@ -240,16 +242,17 @@ be abbreviated while such an abbreviation is not ambiguous.
 
 		[enum]
 		The percentage of full battery life remaining.
-		This integer value can take values from 0 to 100,
+		This integer parameter can take values from 0 to 100,
 		or -1 when this information is unavailable.
 
 		[enum]
-		The estimated number of seconds of the remaining battery life.
+		The integer number of seconds of the estimated remaining
+		battery life.
 		If this value is -1, the information is unavailable.
 
 		[enum]
-		The number of seconds of the full battery life (when at full
-		charge) or -1 if it's unknown.
+		The integer number of seconds of the full battery life (when
+		at full capacity) or -1 if it's unknown.
 	[list_end]
 
 	This form of the command is a wrapper around the
@@ -322,7 +325,8 @@ its work.)
 
 [section EXAMPLES]
 
-Binding to the WM_ENDSESSION event:
+Binding to the WM_ENDSESSION event
+and inspecting the session information:
 [example {
   winpm bind WM_ENDSESSION {
     lassign [winpm info session] final flags
@@ -353,11 +357,12 @@ Binding to a specific WM_POWERBROADCAST event classes:
   }
 }]
 
-Binding to the WM_POWERBROADCAST event:
+Binding to the WM_POWERBROADCAST event
+and inspecting the last message parameters:
 [example {
   winpm bind WM_POWERBROADCAST {
     lassign [winpm info lastmessage] uMsg wParam lParam
-    if {$lParam == 666} { # Some undocumented vendor event class
+    if {$wParam == 666} { # Some undocumented vendor event class
       # Do special processing...
     } else {
       # Just bail out -- known event classes will trigger
@@ -366,7 +371,8 @@ Binding to the WM_POWERBROADCAST event:
   }
 }]
 
-Watching the battery:
+Watching the battery
+using the introspection of the system's power status:
 [example {
   winpm bind PBT_APMPOWERSTATUSCHANGE {
     lassign [winpm info power] ac batt capa sec full
