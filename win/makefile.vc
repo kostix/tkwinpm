@@ -344,20 +344,18 @@ install:    install-binaries install-libraries install-docs
 test: setup $(PROJECT)
         set TCL_LIBRARY=$(ROOT)/library
         $(TCLSH) <<
-load $(PRJLIB:\=/)
-cd "$(ROOT)/tests"
+set auto_path [linsert [set auto_path] 0 {$(OUT_DIR)}]
 set argv "$(TESTFLAGS)"
-source all.tcl
+source "$(ROOT)/tests/all.tcl"
 <<
 !else
 test: setup $(PROJECT)
         echo Please wait while the test results are collected
         set TCL_LIBRARY=$(ROOT)/library
         $(TCLSH) << >tests.log
-load $(PRJLIB:\=/)
-cd "$(ROOT)/tests"
+set auto_path [linsert [set auto_path] 0 {$(OUT_DIR)}]
 set argv "$(TESTFLAGS)"
-source all.tcl
+source "$(ROOT)/tests/all.tcl"
 <<
         type tests.log | more
 !endif

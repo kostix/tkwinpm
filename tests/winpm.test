@@ -16,6 +16,8 @@ if {[lsearch [namespace children] ::tcltest] == -1} {
     namespace import ::tcltest::*
 }
 
+package require winpm
+
 # Basic syntax:
 
 test winpm-syntax-1.1 {Calling w/o options results to an error} -body {
@@ -408,15 +410,17 @@ set reap_slaves {
 	}
 }
 
-if 0 {
 test winpm-slave-1.1 {Package is loaded several times in one process} \
 -setup $reap_slaves -body {
+	set script "\
+		set auto_path [list $auto_path];\
+		package require winpm;\
+		return"
 	interp create foo
-	interp eval foo { package require winpm }
+	interp eval foo $script
 	interp create bar
-	interp eval bar { package require winpm }
+	interp eval bar $script
 } -result {}
-}
 
 # cleanup
 ::tcltest::cleanupTests
