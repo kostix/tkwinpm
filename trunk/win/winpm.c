@@ -29,12 +29,9 @@
 #include <tk.h>
 #include <tkPlatDecls.h>
 
-typedef struct {
-	int classRegistered;
-	int instances;
-} Winpm_PackageData;
-
-static Winpm_PackageData globalState;
+/* Mutex to serialize the process threads through the code
+ * which tests the existence of/creates the monitoring window class */
+TCL_DECLARE_MUTEX(global);
 
 typedef struct {
 	Tcl_Interp *interp; /* Interpreter to which this state belongs */
@@ -452,7 +449,7 @@ Winpm_CmdInfo (
 
 		case INF_ID: {
 			char buf[sizeof("0xFFFFFFFF")];
-			sprintf(buf, "0x%08X", statePtr->hwndMonitor);
+			sprintf(buf, "0x%08X", (unsigned) statePtr->hwndMonitor);
 			Tcl_SetObjResult(interp, Tcl_NewStringObj(buf, -1));
 			return TCL_OK;
 		}
@@ -674,20 +671,26 @@ CreateMonitorWindow (
 	Winpm_InterpData *statePtr)
 {
 	CONST TCHAR name[]  = _T("TkWinPMMonitorWindow");
-	CONST TCHAR titlePfx[] = _T("TkWinPMMonitorWindow");
+	CONST TCHAR title[] = _T("TkWinPMMonitorWindow");
 
 	HINSTANCE   hinst;
 	WNDCLASSEX  wc;
 	ATOM        rc;
-	TCHAR       title[256];
 	HWND        hwnd;
 
 	hinst = Tk_GetHINSTANCE();
 
-	if (!globalState.classRegistered) {
-		memset(&wc, 0, sizeof(wc));
-		
-		wc.cbSize        = sizeof(WNDCLASSEX);
+	memset(&wc, 0, sizeof(wc));
+	wc.cbSize = sizeof(wc);
+
+	Tcl_MutexLock(&global);
+	if (!GetClassInfoEx(hinst, name, &wc)) {
+		if (GetLastError() != ERROR_CLASS_DOES_NOT_EXIST) {
+			Tcl_MutexUnlock(&global);
+			Tcl_ResetResult(interp);
+			AppendSystemError(interp, GetLastError());
+			return TCL_ERROR;
+		}
 		wc.style         = CS_HREDRAW | CS_VREDRAW;
 		wc.lpfnWndProc   = (WNDPROC) WndProc;
 		wc.cbClsExtra    = 0;
@@ -702,18 +705,19 @@ CreateMonitorWindow (
 
 		rc = RegisterClassEx(&wc);
 		if (rc == 0) {
+			Tcl_MutexUnlock(&global);
 			Tcl_ResetResult(interp);
 			AppendSystemError(interp, GetLastError());
 			return TCL_ERROR;
 		}
-
-		globalState.classRegistered = 1;
 	}
+	Tcl_MutexUnlock(&global);
 
-	_tcscpy(title, titlePfx);
-	if (globalState.instances >= 1) {
-		_stprintf(title + _tcslen(title),
-				_T(" #%d"), globalState.instances);
+	if (wc.lpfnWndProc != (WNDPROC) WndProc) {
+		Tcl_SetResult(interp,
+				"Monitoring window class already registered\
+				by a foreign code", TCL_STATIC);
+		return TCL_ERROR;
 	}
 
 	hwnd = CreateWindow(name, title, WS_OVERLAPPEDWINDOW,
@@ -744,8 +748,6 @@ Winpm_Cleanup(ClientData clientData)
 	DestroyWindow(statePtr->hwndMonitor);
 
 	ckfree((char *) statePtr);
-
-	--globalState.instances;
 }
 
 #ifdef BUILD_winpm
@@ -793,8 +795,6 @@ Winpm_Init(Tcl_Interp * interp)
 	if (Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION) != TCL_OK) {
 		return TCL_ERROR;
 	}
-
-	++globalState.instances;
 
 	return TCL_OK;
 }
