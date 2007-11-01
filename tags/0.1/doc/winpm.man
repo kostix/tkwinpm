@@ -1,0 +1,495 @@
+[manpage_begin winpm 3tcl 0.1]
+[comment {$Id$}]
+
+[copyright {2007 Konstantin Khomoutov <flatworm@users.sourceforge.net>}]
+[moddesc {Windows Power and Session Management for Tcl/Tk}]
+
+[comment { TODO:
+ * Mention wm protocol WM_DELETE_WINDOW
+}]
+
+[require Tcl ?8.1?]
+[require Tk ?8.1?]
+[require winpm ?0.1?]
+
+[description]
+
+This package provides Tcl command which allows binding of Tcl scripts to
+Windows power management and session management events (broadcasted
+messages). Also this command can be used to acquire the information
+about the system's power state and particular events being processed by
+callback scripts.
+
+[para]
+Binding semantics are analogous to those of [package Tk]'s bindings
+provided by the [cmd bind] command.
+
+[para]
+Currently bindings to the following Windows messages are supported:
+[list_begin definitions]
+	[lst_item WM_QUERYENDSESSION]
+	This message is broadcasted when the system wants to shut down or
+	reboot. It's possible to cancel this process from the user's
+	callback script (see [sectref "WRITING CALLBACK SCRIPTS"]).
+
+	[lst_item WM_ENDSESSION]
+	Broadcasted when the system is about to shut down or reboot and this
+	process is irreversible.
+
+	[lst_item WM_POWERBROADCAST]
+	This message is broadcasted when the system's power state changes
+	such as the system prepares to suspend or just resumed normal
+	operation after having been suspended. This messaage have several
+	distinguished "classes" (or "topics") referring to different power
+	management events and it's possible to bind to them independently
+	for convenience; these are:
+	[list_begin definitions]
+		[lst_item PBT_APMPOWERSTATUSCHANGE]
+		Broadcasted when the status of the system's power changes.
+		This event occurs when the system transitions from the AC power
+		line to the battery power or vice-versa; also changes in the
+		battery capacity are reported using this event.
+
+		[lst_item PBT_APMRESUMEAUTOMATIC]
+		Broadcasted when the system is resumed from the suspended state
+		and thus resumes its automatic work.
+
+		[lst_item PBT_APMRESUMESUSPEND]
+		This event occurs when the system awakes from the suspended
+		state due to a user's intervention so that the running
+		programs may resume their interaction with the user.
+
+		[lst_item PBT_APMSUSPEND]
+		This event indicates the the system is entering the suspended
+		state.
+	[list_end]
+
+	Also supported several classes of the power broadcast messages
+	which are deprecated since Windows XP/Windows Server 2003:
+	[list_begin definitions]
+		[lst_item PBT_APMBATTERYLOW]
+		[lst_item PBT_APMOEMEVENT]
+		[lst_item PBT_APMQUERYSUSPEND]
+		[lst_item PBT_APMQUERYSUSPENDFAILED]
+		[lst_item PBT_APMRESUMECRITICAL]
+	[list_end]
+
+	Note that bindings to the WM_POWERBROADCAST event itself and its
+	classes are disjoint, i.e. if scripts are bound to
+	WM_POWERBROADCAST and to any (or all) of its classes then when the
+	WM_POWERBROADCAST message is processed two scripts are run: one for
+	the WM_QUERYENDSESSION itself and then one for the specific event
+	class specified in the message, in this order.
+[list_end]
+
+Consult the MSDN documentation for the explanations of precise meanings
+of these events and their classes.
+
+[para]
+To be able to receive these messages this library creates a hidden
+top-level window managed by a custom window procedure (it's called
+"the monitoring window" throughout this manual). It should be
+noted that only the messages listed above are processed directly, all
+others are handed off to the [fun DefWindowProc] standard system
+procedure.
+
+[para]
+All the functionality is encapsulated in the single command [cmd winpm]
+created in the global namespace when the package is loaded. Different
+kinds of action are achieved by using different subcommands of this
+command. They are described below.
+
+[section "BINDING TO EVENTS"]
+
+Before delving into the details, it should be noted that all the
+options to [cmd winpm] and the names of all events in any context may
+be abbreviated while such an abbreviation is not ambiguous.
+
+[list_begin definitions]
+	[call [cmd winpm] [method bind]]
+	Returns a list of events to which scripts are currently bound.
+
+	[call [cmd winpm] [method bind] [arg event]]
+	Returns a script which is bound to [arg event] or an empty
+	string is no script is bound to that event.
+
+	[call [cmd winpm] [method bind] [arg event] [arg script]]
+	Binds [arg script] to [arg event]. After this operation [arg script]
+	will be evaluated in the global scope each time [arg event] is
+	processed by the monitoring window.
+	[nl]
+	If the script starts with the "+" character, this script is appended
+	to the script which is already bound to [arg event] if any,
+	otherwise it's just installed as usually. The "+" character is
+	removed in any case before installing.
+	[nl]
+	If [arg script] is an empty string then the currently bound script
+	if removed, if any, otherwise this command does nothing.
+	[nl]
+	This command returns an empty string.
+[list_end]
+
+[section "INTROSPECTION OF EVENT/SYSTEM INFO"]
+
+[list_begin definitions]
+	[call [cmd winpm] [method info] [method events]]
+	Returns a list of all known events to which user's scripts can be
+	bound.
+
+	[call [cmd winpm] [method info] [method lastmessage]]
+	Returns a list of three integers corresponding to the [arg uMsg],
+	[arg wParam] and [arg lParam] parameters, in that order, of the
+	last processed power management or session management event.
+	This command is most useful to be used by a script bound to an event
+	when the author of such a script for some reason wants to get his/her
+	hands on the raw message that script is processing.
+	[nl]
+	You must observe several things when using this facility:
+	[list_begin bullet]
+		[bullet]
+		Only the information from those Windows messages that can be
+		processed using this library is recorded and can be inspected,
+		i.e. not all messages that reach the monitoring window are noticed
+		by it.
+		[bullet]
+		Only the last message processed is available for inspection,
+		i.e. each message processed overwrites this data with its
+		parameters. So it's best to use this form of the command from
+		within the callback scripts.
+	[list_end]
+	Before the first relevant message hits the monitoring window, this
+	form of the command returns a list of three zero integers.
+
+	[call [cmd winpm] [method info] [method session]]
+	Returns a list of two elements describing either the
+	last WM_QUERYENDSESSION or the last WM_ENDSESSION message processed
+	by the monitoring window. The elements of this list are, in order:
+	[list_begin enum]
+		[enum]
+		A boolean value indicating that the system is being shut down
+		and this process cannot be cancelled, i.e. the system may shut
+		down at any moment after processing of this message is over.
+		This flag is only relevant for the WM_ENDSESSION message, for
+		which it can take values 0 or 1; for the WM_QUERYENDSESSION
+		message this flag is always 0.
+		[nl]
+		This list element corresponds to the [arg wParam] parameter
+		of the message.
+
+		[enum]
+		A list containing variable number of elements (0..2 currently)
+		which are string flags providing additional information about
+		how the system is being shut down. If a particular flag is
+		present in the list then the contition it represents holds.
+		These flags are:
+		[list_begin definitions]
+			[lst_item ENDSESSION_CLOSEAPP]
+			The application is holding a file that must be replaced
+			and the system asks the application to close itself.
+			
+			[lst_item ENDSESSION_LOGOFF]
+			The user is logging off.
+		[list_end]
+
+		This list element corresponds to the [arg lParam] parameter of
+		the message.
+	[list_end]
+
+	For more information about how to intepret this information read the
+	MSDN documentation regarding the WM_QUERYENDSESSION and
+	WM_ENDSESSION Windows messages.
+
+	[call [cmd winpm] [method info] [method power]]
+	Retrieves the current state of the system's power sources as a list
+	of five elements wich are, in order:
+	[list_begin enum]
+		[enum]
+		Status of the AC line (if any). This string parameter can take
+		these values:
+		[list_begin definitions]
+			[lst_item ONLINE]
+			The AC line is active, the system runs on AC power source.
+
+			[lst_item OFFLINE]
+			The AC line is offline, the system runs on battery.
+			
+			[lst_item UNKNOWN]
+			The state of AC line is unknown.
+		[list_end]
+
+		[enum]
+		The system's battery charge status (if any).
+		This string parameter can take these values:
+		[list_begin definitions]
+			[lst_item HIGH]
+			The battery is at more than 66% of its capacity.
+			
+			[lst_item LOW]
+			The battery's capacity is less than 33%.
+
+			[lst_item CRITICAL]
+			The battery's capacity is below 5%.
+
+			[lst_item CHARGING]
+			The battery is charging.
+
+			[lst_item NONE]
+			No system battry present.
+
+			[lst_item UNKNOWN]
+			The state of the system battery is unknown.
+		[list_end]
+
+		[enum]
+		The percentage of full battery life remaining.
+		This integer parameter can take values from 0 to 100,
+		or -1 when this information is unavailable.
+
+		[enum]
+		The integer number of seconds of the estimated remaining
+		battery life.
+		If this value is -1, the information is unavailable.
+
+		[enum]
+		The integer number of seconds of the full battery life (when
+		at full capacity) or -1 if it's unknown.
+	[list_end]
+
+	This form of the command is a wrapper around the
+	[fun GetSystemPowerStatus] Win32 API procedure and the information
+	returned is parsed from the SYSTEM_POWER_STATUS structure returned
+	by that procedure. Refer to the relevant parts of MSDN documentation
+	for more info.
+[list_end]
+
+[section "OTHER COMMANDS"]
+
+[list_begin definitions]
+	[call [cmd winpm] [method info] [method id]]
+	This form of the command returns a system "window id" of the
+	monitoring window just as the [cmd winfo] command does for arbitrary
+	Tk windows. Since this package is Windows-only, returned window id
+	is actually a Windows handle to the monitoring window.
+	[nl]
+	Returned value is formatted in the same way [cmd winfo] command
+	formats its return value: an uppercased string representing a
+	hexadecimal number prefixed with "0x".
+
+	[call [cmd winpm] [method _injectwm] [arg uMsg] [arg wParam] [arg lParam]]
+	This form of the command is provided for testing purposes and it
+	allows to construct and send any Windows message to the monitoring
+	window. The message is constructed from the arguments of this
+	command (which must be integer values) and is sent using the
+	[fun SendMessage] Windows API procedure.
+	[nl]
+	This command returns an integer which is the result code of the
+	[fun SendMessage] call.
+[list_end]
+
+[section "WRITING CALLBACK SCRIPTS"]
+
+The key points regarding callback scripts are:
+[list_begin bullet]
+	[bullet]
+	Callback scripts are evaluated in the global namespace on the top
+	level of the stack.
+
+	[bullet]
+	Errors in callback scripts are handled using the "background error"
+	mechanism ([cmd bgerror] command).
+
+	[bullet]
+	The return values of all scripts are discarded but the return code
+	TCL_CONTINUE can be used in scripts bound to certain events to
+	influence the behaviour of the system (see below).
+[list_end]
+
+Since the current version of this library doesn't support "precent
+substitutions" in callback scripts, if the script wants to inspect an
+information pertaining to the event it's bound to it must use the
+introspection subcommands of the [cmd winpm] command
+(see [sectref "INTROSPECTION OF EVENT/SYSTEM INFO"]).
+
+[para]
+Two events are used by the system to query the running
+application about whether it's OK to proceed with the operation in
+question, these are WM_QUERYENDSESSION message and the
+PBT_APMQUERYSUSPEND class of the WM_POWERBROADCAST message. The callback
+script bound to such event can prevent the system from committing the
+requested operation by returning the TCL_CONTINUE Tcl return code which
+is typically achieved by calling the [cmd continue] Tcl command. (This
+approach was chosen since in both cases the system effectively asks
+the application to [emph interrupt] it's normal course of action in
+one way or another and the application may opt to [emph continue]
+its work.)
+
+[section EXAMPLES]
+
+Binding to the WM_ENDSESSION event
+and inspecting the session information:
+[example {
+  winpm bind WM_ENDSESSION {
+    lassign [winpm info session] final flags
+    if {[lsearch $flags *LOGOFF] >= 0} {
+      set msg "The user is logging off"
+    } else {
+      set msg "The system is being shut down"
+    }
+    if {$final} { append msg " NOW!" }
+    warn user -with $msg
+    network disconnect
+    workplace save_all
+    quit
+  }
+}]
+
+Binding to a specific WM_POWERBROADCAST event classes:
+[example {
+  winpm bind PBT_APMSUSPEND {
+    warn user -with "suspending..."
+    network save_active_connections
+    network disconnect
+    workplace save_all
+  }
+
+  winpm bind PBT_APMRESUMEAUTOMATIC {
+    network restore_saved_connections
+  }
+}]
+
+Binding to the WM_POWERBROADCAST event
+and inspecting the last message parameters:
+[example {
+  winpm bind WM_POWERBROADCAST {
+    lassign [winpm info lastmessage] uMsg wParam lParam
+    if {$wParam == 666} { # Some undocumented vendor event class
+      # Do special processing...
+    } else {
+      # Just bail out -- known event classes will trigger
+      # running of their respective callback scripts, if any...
+   }
+  }
+}]
+
+Watching the battery
+using the introspection of the system's power status:
+[example {
+  winpm bind PBT_APMPOWERSTATUSCHANGE {
+    lassign [winpm info power] ac batt capa sec full
+    if {[string equal $ac OFFLINE]
+        && ![string equal $batt UNKNOWN]} {
+      set msg "Battery remaining: $capa%"
+      if {$sec >= 0} {
+        append msg " (estimated $sec seconds to go)"
+      }
+      puts $msg
+    }
+  }
+}]
+
+Interactive session sketch:
+[example {
+  % package require winpm
+  0.1
+  %
+ 
+  # Inspecting events being processed:
+  % winpm bind
+  %
+ 
+  # No events are processed currently. What events are available?
+  % winpm info events
+  WM_QUERYENDSESSION WM_ENDSESSION WM_POWERBROADCAST
+  PBT_APMPOWERSTATUSCHANGE PBT_APMRESUMEAUTOMATIC PBT_APMRESUMESUSPEND
+  PBT_APMSUSPEND PBT_APMBATTERYLOW PBT_APMOEMEVENT PBT_APMQUERYSUSPEND
+  PBT_APMQUERYSUSPENDFAILED PBT_APMRESUMECRITICAL
+  %
+
+  # Let's bind a script to an event using an abbreviation
+  # of the WM_QUERYENDSESSION event:
+  % winpm bind WM_Q {puts one}
+  %
+
+  # Now inspect processed events again:
+  % winpm bind
+  WM_QUERYENDSESSION
+  %
+
+  # What's bound to WM_QUERYENDSESSION?
+  % winpm b WM_QUERY
+  puts one
+  %
+
+  # Let's add to this script:
+  % winpm bind WM_QUERYENDSESSION {+puts two}
+  %
+
+  # What do we have now?
+  % winpm bind WM_QUERY
+  puts one
+  puts two
+  %
+
+  # Smoke test (uMsg = 0x0011 is the code of WM_QUERYENDSESSION):
+  % winpm _inject 0x0011 0 1
+  puts one
+  puts two
+  1
+  %
+
+  # Bind to another event:
+  % winpm bind PBT_APMSUSPEND { puts suspended }
+
+  # What events are processed now?
+  % winpm bind
+  PBT_APMSUSPEND WM_QUERYENDSESSION
+  %
+
+  # Unbind WM_QUERYENDSESSION:
+  % winpm bind WM_QUERYEND {}
+  %
+
+  # And again:
+  % winpm bind WM_QUERYENDSESSION
+  %
+ 
+  % winpm bind
+  PBT_APMSUSPEND
+  %
+}]
+
+[section BUGS]
+
+[list_begin bullet]
+	[bullet]
+	"Percent substitution" isn't available for callback scripts so they
+	should use the introspection capabilities of this library to get the
+	information they need; it currently can't be just "embedded" into
+	the script like it's possible with Tk events.
+
+	[bullet]
+	This library creates one hidden top-level window in each interpreter
+	it's loaded into. It would be more natural to reuse an existing
+	window (like ".") but this requires subversion of the window
+	procedure of such a window which is a much worse approach.
+
+	[bullet]
+	Currently the window procedure of the monitoring window doesn't
+	attempt to "filter out" deadly messages like WM_CLOSE.
+
+	[bullet]
+	This package depends on Tk (to use it's bindings management
+	mechanisms) while it appears it doesn't necessarily need to be.
+	On the other hand, it's currently unclear whether this package can
+	be decoupled from Tk due to some other reasons.
+[list_end]
+
+[section AUTHORS]
+
+This extension is created by
+Konstantin Khomoutov <flatworm@users.sourceforge.net>
+
+[see_also twapi ffidl bgerror wm continue]
+[keywords Windows power session management event suspend resume battery]
+[manpage_end]
+

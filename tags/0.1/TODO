@@ -1,0 +1,29 @@
+$Id$
+
+HIGH:
+
+* Write more tests ([info lastmessage] for no processed
+  events, [info session] for all possible combinations
+  of flags).
+
+* Create simple release packaging facilities.
+
+NORMAL:
+
+* Implement %-expansion of bound scripts.
+
+* Substitute Tk binding handling with regular hashes
+  and drop dependence on Tk.
+
+* Code cleanup and comments.
+
+LOW:
+
+? Implement wrapper subrommands for some "active" relevant Win32
+  API calls for shutting down the system, logging off the user,
+  etc.
+
+? Possibly rename the project to tclwinsm (Windows Session
+  Management).
+
+# vim:tw=64:noet

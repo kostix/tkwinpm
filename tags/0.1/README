@@ -1,0 +1,23 @@
+This package exports some mechanics of Win32 API related to
+Windows power management and session management to the Tcl
+script level.
+
+By using this package arbitrary Tcl scripts can be bound to
+such events like "the system switched from the AC power to the
+battery", "the user is about to log off", "system battery
+low", "resumed from suspended state" and so on. The management
+of such scripts are modelled after the Tk [bind] command.
+
+Introspection capabilities to analyze the events being
+processed as well as the system's power status are provided.
+
+Refer to the provided HTML documentation for more info.
+
+The package is written by
+Konstantin Khomoutov <flatworm@users.sourceforge.net>
+and it is hosted at http://tkwinpm.googlecode.com
+
+This package is distributed under pretty the same license as
+Tcl itself.
+
+# vim:tw=62:noet
