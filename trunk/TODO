@@ -2,33 +2,22 @@ $Id$
 
 HIGH:
 
-* Check the case of several interps: it works in plain
-  wish/tclsh but fails with "Class already registered"
-  from within tcltest suite.
+* Write more tests ([info lastmessage] for no processed
+  events, [info session] for all possible combinations
+  of flags).
 
-* Think of possible threading issues (since now we're 
-  using the process-global state.
-
-* Bring MinGW version in sync.
-
-* Write INSTALL and a short README files.
+* Create simple release packaging facilities.
 
 NORMAL:
 
 * Implement %-expansion of bound scripts.
 
-* Create simple release packaging facilities.
-
-LOW:
-
 * Substitute Tk binding handling with regular hashes
   and drop dependence on Tk.
 
-* Figure out how to enable linking against Unicode Win32 API.
-  (Is it really needed? If we pass some sorts of string data to
-  it, we must ensure it's USC-2 when using Unicode API.)
-
 * Code cleanup and comments.
+
+LOW:
 
 ? Implement wrapper subrommands for some "active" relevant Win32
   API calls for shutting down the system, logging off the user,
@@ -36,6 +25,5 @@ LOW:
 
 ? Possibly rename the project to tclwinsm (Windows Session
   Management).
-
 
 # vim:tw=64:noet

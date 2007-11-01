@@ -1,0 +1,75 @@
+This package is based on the TEA 3.6 packaging system and can
+be built using either MSYS (MinGW) or Microsoft Visual C
+(preferably 6.0 or later). It also may be possible to build
+this package using Cygwin, but this was not tested.
+
+
+I. Building with Visual C
+
+1. Start some shell (cmd.exe for instance).
+
+2. "cd" to the "win" subdirectory of the root directory of
+   this package, e.g. into "c:\src\winpm\win" provided the
+   package sources are extracted into "c:\src\winpm".
+
+3. If needed, run the batch file which sets the environment
+   for the Visual C installation (should be provided with
+   Visual C).
+
+4. Build the extension by issuing this command:
+
+   nmake -f makefile.vc install TCLDIR=C:\Tcl TKDIR=C:\Tcl INSTALLDIR=C:\Tcl\lib
+
+   Note that "C:\Tcl" must be the pathname of a directory in
+   which the "tclConfig.sh" file of your installation of Tcl
+   is located. Also substitute "C:\Tcl\lib" with the pathname
+   of a directory to which the resulting "winpmXY" directory
+   will be installed ("XY" being the major and minor number of
+   this package version).
+
+   This command will build the package and install it.
+
+If you wish, you can use other makefile targets, this may be
+required if you want to test the package for example.
+These targets are:
+* all -- builds the package;
+* test -- runs tests on the built package;
+* install -- installs the package.
+
+To perform debug build specify the "OPTS=symbols" as one of
+the arguments to nmake.
+
+See the head of makefile.vc for additional possibilities.
+
+
+II. Building with MSYS (MinGW)
+
+1. Run the MSYS shell.
+
+2. "cd" to the root directory of the unpacked sources of this
+package.
+
+3. Run: ./configure
+
+   It looks into some "common places" to find your Tcl/Tk
+   installation. If it's located in some unusual place, use
+   the full form:
+
+   ./configure --with-tcl=... --with-tk=...
+
+   Also you can use --prefix=... and its form to specify where
+   the package binaries should be installed.
+   Use: ./configure --help
+   to get more info about the possibilities.
+
+4. Then run: make install
+
+   This will build and install the package.
+
+   Alternatively, you can use the standard make targets:
+   * all (or no target at all) -- to build the package;
+   * test -- to test the built package;
+   * install -- to install the package.
+
+
+# vim:tw=62:noet
